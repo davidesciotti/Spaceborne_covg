@@ -802,7 +802,7 @@ def correlation_from_covariance(covariance):
     return correlation
 
 
-def build_noise(zbins, n_probes, sigma_eps2, ng_shear, ng_clust, EP_or_ED):
+def build_noise(zbins, n_probes, sigma_eps2, ng_shear, ng_clust, EP_or_ED, which_shape_noise):
     """Builds the noise power spectra.
 
     Parameters
@@ -830,20 +830,22 @@ def build_noise(zbins, n_probes, sigma_eps2, ng_shear, ng_clust, EP_or_ED):
         Must have length zbins.
     EP_or_ED : str, optional
         Whether bins are equipopulated ('EP') or equidistant ('ED').
-
+    which_shape_noise : str
+        Which shape noise to use. 
+        'ISTF' for the "incorrect" shape noise (used in ISTF paper), for backwars-compatibility.
+        'correct' for the correct shape noise, taking into account EE-only noise.
+    
     Returns
     -------
-    N : ndarray, shape (n_probes, n_probes, zbins, zbins)
+    noise_4d : ndarray, shape (n_probes, n_probes, zbins, zbins)
         Noise power spectra matrices
 
     Notes
     -----
-    The noise is defined as:
+    The noise N is defined as:
         N_LL = sigma_eps^2 / (2 * n_bar) 
         N_GG = 1 / n_bar
         N_GL = N_LG = 0
-
-    Where sigma_eps includes factor of sqrt(2) for two components.
 
     """
 
@@ -881,7 +883,14 @@ def build_noise(zbins, n_probes, sigma_eps2, ng_shear, ng_clust, EP_or_ED):
 
     # create and fill N
     noise_4d = np.zeros((n_probes, n_probes, zbins, zbins))
-    np.fill_diagonal(noise_4d[0, 0, :, :], sigma_eps2 / (2 * n_bar_shear))
+    
+    if which_shape_noise == 'ISTF':
+        np.fill_diagonal(noise_4d[0, 0, :, :], sigma_eps2 / n_bar_shear)  # ! old, INcorrect
+    elif which_shape_noise == 'correct':
+        np.fill_diagonal(noise_4d[0, 0, :, :], sigma_eps2 / (2 * n_bar_shear))  # ! correct
+    else:
+        raise ValueError('which_shape_noise must be ISTF or correct')
+    
     np.fill_diagonal(noise_4d[1, 1, :, :], 1 / n_bar_clust)
     noise_4d[0, 1, :, :] = 0
     noise_4d[1, 0, :, :] = 0
