@@ -446,29 +446,25 @@ if part_sky:
     else:
         mask = utils.generate_polar_cap(area_deg2=survey_area_deg2, nside=cfg['nside'])
 
-    # apodize
-    fsky_mask = np.mean(mask)
-    survey_area_deg2_mask = fsky_mask * utils.DEG2_IN_SPHERE
+    fsky = np.mean(mask**2)
+    survey_area_deg2 = fsky * utils.DEG2_IN_SPHERE
 
+    # apodize
     hp.mollview(mask, title='before apodization', cmap='inferno_r')
-    if cfg['apodize_mask'] and int(survey_area_deg2_mask) != 41252:
-        mask = nmt.mask_apodization(mask, aposize=.1, apotype="Smooth")
+    if cfg['apodize_mask'] and int(survey_area_deg2) != 41252:
+        mask = nmt.mask_apodization(mask, aposize=cfg['aposize'], apotype="Smooth")
         hp.mollview(mask, title='after apodization', cmap='inferno_r')
 
     # recompute after apodizing
-    fsky_mask = np.mean(mask)
-    survey_area_deg2_mask = fsky_mask * utils.DEG2_IN_SPHERE
-
-    fsky = fsky_mask
-    survey_area_deg2 = survey_area_deg2_mask
-
-    # check fsky and nside
-    nside_from_mask = hp.get_nside(mask)
-    # assert np.isclose(fsky_mask, fsky, atol=0, rtol=2e-1), 'fsky from mask does not match with fsky within 10%'
-    assert nside_from_mask == cfg['nside'], 'nside from mask is not consistent with the desired nside in the cfg file'
+    fsky = np.mean(mask**2)
+    survey_area_deg2 = fsky * utils.DEG2_IN_SPHERE
 
     npix = hp.nside2npix(nside)
     pix_area = 4 * np.pi
+
+    # check fsky and nside
+    nside_from_mask = hp.get_nside(mask)
+    assert nside_from_mask == cfg['nside'], 'nside from mask is not consistent with the desired nside in the cfg file'
 
     # set different possible values for lmax
     lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
@@ -570,7 +566,7 @@ if part_sky:
     print('lmax_mask:', lmax_mask)
     print('lmax_healpy:', lmax_healpy)
     print('nside:', nside)
-    print('fsky_mask after apodization:', fsky_mask)
+    print('fsky_mask after apodization:', fsky)
 
     # cut and bin the theory
     cl_GG_unbinned = cl_GG_unbinned[:lmax, :zbins_use, :zbins_use]
@@ -729,16 +725,16 @@ if part_sky:
         plt.plot(ells_eff, master_cl[:, zi, zi], label=f'MASTER-cl', alpha=.7, marker='.')
         plt.plot(ells_tot, pseudo_cl_dav[:, zi, zi], label=f'dav pseudo-cl', alpha=.7)
 
-        plt.scatter(ells_eff, cl_th_bpw[:, zi, zi] * fsky_mask, marker='.', label=f'bpw th cls*fsky')
+        plt.scatter(ells_eff, cl_th_bpw[:, zi, zi] * fsky, marker='.', label=f'bpw th cls*fsky')
         plt.plot(ells_tot, cl_th_unbinned[:, zi, zi], label=f'unbinned th cls')
-        plt.plot(ells_tot, cl_th_unbinned[:, zi, zi] * fsky_mask, label=f'unbinned th cls*fsky')
+        plt.plot(ells_tot, cl_th_unbinned[:, zi, zi] * fsky, label=f'unbinned th cls*fsky')
 
     plt.xlabel(r'$\ell$')
     plt.axvline(lmax_healpy_safe, color='k', ls='--', label='1.5 * nside', alpha=.7)
     plt.yscale('log')
     plt.legend()
     plt.ylabel(r'$C_\ell$')
-    plt.title(f'{block}, nside={nside}, fsky={fsky_mask:.2f}, zi={zi}')
+    plt.title(f'{block}, nside={nside}, fsky={fsky:.2f}, zi={zi}')
     plt.xscale('log')
     plt.tight_layout()
 
@@ -764,9 +760,9 @@ if part_sky:
     if coupled:
         print('Inputting pseudo-Cls/fsky to use INKA...')
         nbl_4covnmt = nbl_tot
-        cl_GG_4covnmt = pcl_GG_nmt[:, zi, zj] / fsky_mask
-        cl_GL_4covnmt = pcl_GL_nmt[:, zi, zj] / fsky_mask
-        cl_LL_4covnmt = pcl_LL_nmt[:, zi, zj] / fsky_mask
+        cl_GG_4covnmt = pcl_GG_nmt[:, zi, zj] / fsky
+        cl_GL_4covnmt = pcl_GL_nmt[:, zi, zj] / fsky
+        cl_LL_4covnmt = pcl_LL_nmt[:, zi, zj] / fsky
         cl_GG_4covsb = pcl_GG_nmt  # or bpw_pcl_GG_nmt?
         cl_GL_4covsb = pcl_GL_nmt  # or bpw_pcl_GL_nmt?
         cl_LL_4covsb = pcl_LL_nmt  # or bpw_pcl_LL_nmt?
@@ -967,7 +963,7 @@ if part_sky:
     cl_3x2pt_5d[1, 1, :, :, :] = cl_GG_4covsb
     noise_3x2pt_5d = np.zeros_like(cl_3x2pt_5d)
 
-    cov_3x2pt_GO_10D = utils.covariance_einsum(cl_3x2pt_5d, noise_3x2pt_5d, fsky_mask,
+    cov_3x2pt_GO_10D = utils.covariance_einsum(cl_3x2pt_5d, noise_3x2pt_5d, fsky,
                                                ells_4covsb, delta_ells_4covsb)
 
     probe_a_ix, probe_b_ix, probe_c_ix, probe_d_ix = \
@@ -1062,7 +1058,7 @@ if part_sky:
                      marker='.')
         count += 1
     plt.loglog(cl_use, label='theory cls', c='tab:orange')
-    plt.loglog(cl_use * fsky_mask, label='theory cls*fsky_mask', c='k', ls='--')
+    plt.loglog(cl_use * fsky, label='theory cls*fsky_mask', c='k', ls='--')
     plt.axvline(lmax_healpy_safe, c='k', ls='--', label='1.5 * nside')
     plt.legend()
     plt.xlabel(r'$\ell$')
