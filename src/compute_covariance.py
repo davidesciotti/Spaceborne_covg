@@ -14,6 +14,7 @@ import utils
 import os
 ROOT = os.getenv("ROOT")
 
+
 def get_sample_field_bu(cl_TT, cl_EE, cl_BB, cl_TE, nside):
     """This routine generates a spin-0 and a spin-2 Gaussian random field based
     on these power spectra.
@@ -22,19 +23,44 @@ def get_sample_field_bu(cl_TT, cl_EE, cl_BB, cl_TE, nside):
     map_t, map_q, map_u = hp.synfast([cl_TT, cl_EE, cl_BB, cl_TE], nside)
     return nmt.NmtField(mask, [map_t], lite=False), nmt.NmtField(mask, [map_q, map_u], lite=False)
 
-def get_sample_field(cl_TT, cl_EE, cl_BB, cl_TE, nside):
-    """This routine generates a spin-0 and a spin-2 Gaussian random field based
-    on these power spectra.
-    From https://namaster.readthedocs.io/en/latest/source/sample_covariance.html
+
+def cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside):
     """
-    alm, Elm, Blm = hp.synalm([cl_TT, cl_EE, cl_BB, cl_TE, 0*cl_TE, 0*cl_TE],
-                              lmax=3*nside-1, new=True)
-    mpQ, mpU = hp.alm2map_spin([Elm, Blm], nside, 2, 3*nside-1)
-    mpa = hp.alm2map(alm, nside)
-    f0 = nmt.NmtField(mask, [mpa], n_iter=0)
-    f2 = nmt.NmtField(mask, [mpQ, mpU], spin=2, n_iter=0)
-    #map_t, map_q, map_u = hp.synfast([cl_TT, cl_EE, cl_BB, cl_TE], nside)
-    #return nmt.NmtField(mask, [map_t], lite=False), nmt.NmtField(mask, [map_q, map_u], lite=False)
+    This routine generates maps for spin-0 and a spin-2 Gaussian random field based
+    on the input power spectra.
+    
+    Args:
+        cl_TT (numpy.ndarray): Temperature power spectrum.
+        cl_EE (numpy.ndarray): E-mode polarization power spectrum.
+        cl_BB (numpy.ndarray): B-mode polarization power spectrum.
+        cl_TE (numpy.ndarray): Temperature-E-mode cross power spectrum.
+        nside (int): HEALPix resolution parameter.
+    
+    Returns:
+        numpy.ndarray, numpy.ndarray, numpy.ndarray: Temperature map, Q-mode polarization map, U-mode polarization map.
+    """
+    alm, Elm, Blm = hp.synalm([cl_TT, cl_EE, cl_BB, cl_TE, 0 * cl_TE, 0 * cl_TE],
+                              lmax=3 * nside - 1, new=True)
+    map_Q, map_U = hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1)
+    map_T = hp.alm2map(alm, nside)
+    return map_T, map_Q, map_U
+
+
+def masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, n_iter=0, lite=True):
+    """
+    Create NmtField objects from masked maps.
+    
+    Args:
+        map_T (numpy.ndarray): Temperature map.
+        map_Q (numpy.ndarray): Q-mode polarization map.
+        map_U (numpy.ndarray): U-mode polarization map.
+        mask (numpy.ndarray): Mask to apply to the maps.
+    
+    Returns:
+        nmt.NmtField, nmt.NmtField: NmtField objects for the temperature and polarization maps.
+    """
+    f0 = nmt.NmtField(mask, [map_T], n_iter=n_iter, lite=lite)
+    f2 = nmt.NmtField(mask, [map_Q, map_U], spin=2, n_iter=n_iter, lite=lite)
     return f0, f2
 
 
@@ -130,8 +156,8 @@ def produce_gaussian_sims_bu(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, loa
 
         if which_cls == 'namaster':
             
-            f0 = nmt.NmtField(mask, [map_t], lite=True)
-            f2 = nmt.NmtField(mask, [map_q, map_u], lite=True)
+            map_T, map_Q, map_U =  cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
+            f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
 
             if coupled:
                 pseudo_cl_tt = nmt.compute_coupled_cell(f0, f0)[0]
@@ -168,6 +194,7 @@ def produce_gaussian_sims_bu(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, loa
     print('...done')
 
     return sim_cls_dict
+
 
 def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_maps, coupled, which_cls, batch_size=10):
     if not coupled and which_cls == 'healpy' and int(survey_area_deg2) != 41252:
@@ -180,16 +207,17 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_m
     print(f'Generating {nreal} maps for nside {nside} and computing cls with {which_cls}...')
 
     for _ in tqdm(range(nreal)):
-        
+
         map_t, map_q, map_u = hp.synfast([cl_TT, cl_EE, cl_BB, cl_TE], nside)
 
         if which_cls == 'namaster':
-            
+
             # old
             # f0 = nmt.NmtField(mask, [map_t], lite=True)
             # f2 = nmt.NmtField(mask, [map_q, map_u], lite=True)
 
-            f0, f2 = get_sample_field(cl_TT, cl_EE, cl_BB, cl_TE, nside)
+            map_T, map_Q, map_U =  cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
+            f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
 
             if coupled:
                 pseudo_cl_tt = nmt.compute_coupled_cell(f0, f0)[0]
@@ -201,7 +229,7 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_m
                 pseudo_cl_ee = compute_master(f2, f2, w22)
 
         elif which_cls == 'healpy':
-            
+
             map_t = hp.remove_monopole(map_t)
             map_q = hp.remove_monopole(map_q)
             map_u = hp.remove_monopole(map_u)
@@ -217,7 +245,7 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_m
         pseudo_cl_tt_list.append(pseudo_cl_tt)
         pseudo_cl_te_list.append(pseudo_cl_te)
         pseudo_cl_ee_list.append(pseudo_cl_ee)
-        
+
     sim_cls_dict = {
         'pseudo_cl_tt': np.array(pseudo_cl_tt_list),
         'pseudo_cl_te': np.array(pseudo_cl_te_list),
@@ -228,7 +256,6 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_m
     return sim_cls_dict
 
 
-
 def sample_cov_nmt(zi, probe):
 
     print("Sample covariance from nmt documentation")
@@ -237,7 +264,8 @@ def sample_cov_nmt(zi, probe):
     sample_mean = np.zeros(nbl_eff)
 
     for _ in tqdm(np.arange(nreal)):
-        f0, f2 = get_sample_field(cl_TT=cl_GG_unbinned[:, zi, zi],
+        
+        f0, f2 = get_sample_field_bu(cl_TT=cl_GG_unbinned[:, zi, zi],
                                   cl_EE=cl_LL_unbinned[:, zi, zi],
                                   cl_BB=cl_BB_unbinned[:, zi, zi],
                                   cl_TE=cl_GL_unbinned[:, zi, zi],
@@ -419,7 +447,7 @@ if part_sky:
         mask = utils.generate_polar_cap(area_deg2=survey_area_deg2, nside=cfg['nside'])
 
     # apodize
-    fsky_mask = np.mean(mask) 
+    fsky_mask = np.mean(mask)
     survey_area_deg2_mask = fsky_mask * utils.DEG2_IN_SPHERE
 
     hp.mollview(mask, title='before apodization', cmap='inferno_r')
@@ -428,7 +456,7 @@ if part_sky:
         hp.mollview(mask, title='after apodization', cmap='inferno_r')
 
     # recompute after apodizing
-    fsky_mask = np.mean(mask) 
+    fsky_mask = np.mean(mask)
     survey_area_deg2_mask = fsky_mask * utils.DEG2_IN_SPHERE
 
     fsky = fsky_mask
@@ -578,12 +606,12 @@ if part_sky:
     f0 = np.empty(zbins_use, dtype=object)
     f2 = np.empty(zbins_use, dtype=object)
     for zi in range(zbins_use):
-        # Prepare the power spectra for EE, BB, and EB
-        f0[zi], f2[zi] = get_sample_field(cl_TT=cl_GG_unbinned[:, zi, zi],
+        map_T, map_Q, map_U =  cls_to_maps(cl_TT=cl_GG_unbinned[:, zi, zi],
                                           cl_EE=cl_LL_unbinned[:, zi, zi],
                                           cl_BB=cl_BB_unbinned[:, zi, zi],
                                           cl_TE=cl_GL_unbinned[:, zi, zi],
                                           nside=nside)
+        f0[zi], f2[zi] = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
 
     # Create a map(s) from cl(s) to visualize the simulated - masked - maps, just for fun
     zi = 0
@@ -732,7 +760,7 @@ if part_sky:
 
     zi, zj, zk, zl = 0, 0, 0, 0
     block = 'GLGL'
-    
+
     if coupled:
         print('Inputting pseudo-Cls/fsky to use INKA...')
         nbl_4covnmt = nbl_tot
@@ -941,7 +969,7 @@ if part_sky:
 
     cov_3x2pt_GO_10D = utils.covariance_einsum(cl_3x2pt_5d, noise_3x2pt_5d, fsky_mask,
                                                ells_4covsb, delta_ells_4covsb)
-    
+
     probe_a_ix, probe_b_ix, probe_c_ix, probe_d_ix = \
         probename_dict[block[0]], probename_dict[block[1]], probename_dict[block[2]], probename_dict[block[3]]
     cov_sb = cov_3x2pt_GO_10D[probe_a_ix, probe_b_ix, probe_c_ix, probe_d_ix, :, :, zi, zj, zk, zl]
@@ -993,24 +1021,23 @@ if part_sky:
     if not cfg['load_simulated_cls']:
         print('Producing gaussian simulations...')
         simulated_cls_dict = produce_gaussian_sims(cl_GG_unbinned[:, zi, zi],
-                                                cl_LL_unbinned[:, zi, zi],
-                                                cl_BB_unbinned[:, zi, zi],
-                                                cl_GL_unbinned[:, zi, zi],
-                                                nside=nside, nreal=nreal,
-                                                mask=mask,
-                                                load_maps=False,
-                                                coupled=coupled,
-                                                which_cls=cfg['which_cls'])
+                                                   cl_LL_unbinned[:, zi, zi],
+                                                   cl_BB_unbinned[:, zi, zi],
+                                                   cl_GL_unbinned[:, zi, zi],
+                                                   nside=nside, nreal=nreal,
+                                                   mask=mask,
+                                                   load_maps=False,
+                                                   coupled=coupled,
+                                                   which_cls=cfg['which_cls'])
         print('...done in {:.2f}s'.format(time.perf_counter() - start_time))
-        np.save(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'\
-            f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}.npy', simulated_cls_dict, allow_pickle=True)
+        np.save(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'
+                f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}.npy', simulated_cls_dict, allow_pickle=True)
 
     elif cfg['load_simulated_cls']:
-        simulated_cls_dict = np.load(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'\
-            f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}.npy', allow_pickle=True).item()
-    
+        simulated_cls_dict = np.load(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'
+                                     f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}.npy', allow_pickle=True).item()
+
     simulated_cls = simulated_cls_dict[sim_cl_dict_key]
-    
 
     if simulated_cls.ndim == 3:
         simulated_cls = simulated_cls[:, 0, :]
@@ -1091,8 +1118,8 @@ if part_sky:
     ax[1].axhline(y=0, color='k', alpha=0.5, ls='--')
     ax[0].axvline(lmax_healpy_safe, color='k', alpha=0.5, ls='--')
     ax[1].axvline(lmax_healpy_safe, color='k', alpha=0.5, ls='--', label='1.5 * nside')
-    ax[0].axvline(2*nside, color='k', alpha=0.5, ls='--')
-    ax[1].axvline(2*nside, color='k', alpha=0.5, ls=':', label='2 * nside')
+    ax[0].axvline(2 * nside, color='k', alpha=0.5, ls='--')
+    ax[1].axvline(2 * nside, color='k', alpha=0.5, ls=':', label='2 * nside')
     ax[1].legend()
     ax[0].set_ylabel('diag cov')
     ax[0].legend()
@@ -1103,7 +1130,7 @@ if part_sky:
     corr_nmt = utils.cov2corr(cov_nmt)
     corr_sb = utils.cov2corr(binned_cov_sb)
     corr_sims = utils.cov2corr(cov_sims)
-    
+
     threshold = 10  # percent
     cov_abs_diff_sims = np.fabs(utils.percent_diff(cov_sims, cov_nmt))
     cor_abs_diff_sims = np.fabs(utils.percent_diff(corr_sims, corr_nmt))
@@ -1124,7 +1151,7 @@ if part_sky:
     fig.colorbar(cax2, ax=ax[1, 0])
     fig.colorbar(cax3, ax=ax[2, 0])
     fig.colorbar(cax4, ax=ax[3, 0])
-    
+
     # correlation (common colorbar)
     cbar_corr_1 = ax[0, 1].matshow(corr_sb, vmin=-1, vmax=1, cmap='RdBu_r')
     cbar_corr_2 = ax[1, 1].matshow(corr_nmt, vmin=-1, vmax=1, cmap='RdBu_r')  # Apply same cmap and limits
@@ -1138,7 +1165,7 @@ if part_sky:
     fig.colorbar(cbar_corr_2, ax=ax[1, 1])
     fig.colorbar(cbar_corr_3, ax=ax[2, 1])
     fig.colorbar(cbar_corr_4, ax=ax[3, 1])
-    
+
     # Adjust layout to make room for colorbars
     fig.suptitle(title)
     plt.tight_layout()
