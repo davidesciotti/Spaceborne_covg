@@ -28,14 +28,14 @@ def cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside):
     """
     This routine generates maps for spin-0 and a spin-2 Gaussian random field based
     on the input power spectra.
-    
+
     Args:
         cl_TT (numpy.ndarray): Temperature power spectrum.
         cl_EE (numpy.ndarray): E-mode polarization power spectrum.
         cl_BB (numpy.ndarray): B-mode polarization power spectrum.
         cl_TE (numpy.ndarray): Temperature-E-mode cross power spectrum.
         nside (int): HEALPix resolution parameter.
-    
+
     Returns:
         numpy.ndarray, numpy.ndarray, numpy.ndarray: Temperature map, Q-mode polarization map, U-mode polarization map.
     """
@@ -49,13 +49,13 @@ def cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside):
 def masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, n_iter=0, lite=True):
     """
     Create NmtField objects from masked maps.
-    
+
     Args:
         map_T (numpy.ndarray): Temperature map.
         map_Q (numpy.ndarray): Q-mode polarization map.
         map_U (numpy.ndarray): U-mode polarization map.
         mask (numpy.ndarray): Mask to apply to the maps.
-    
+
     Returns:
         nmt.NmtField, nmt.NmtField: NmtField objects for the temperature and polarization maps.
     """
@@ -155,8 +155,8 @@ def produce_gaussian_sims_bu(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, loa
         map_u = maps_u[i]
 
         if which_cls == 'namaster':
-            
-            map_T, map_Q, map_U =  cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
+
+            map_T, map_Q, map_U = cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
             f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
 
             if coupled:
@@ -216,7 +216,7 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_m
             # f0 = nmt.NmtField(mask, [map_t], lite=True)
             # f2 = nmt.NmtField(mask, [map_q, map_u], lite=True)
 
-            map_T, map_Q, map_U =  cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
+            map_T, map_Q, map_U = cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
             f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
 
             if coupled:
@@ -264,12 +264,12 @@ def sample_cov_nmt(zi, probe):
     sample_mean = np.zeros(nbl_eff)
 
     for _ in tqdm(np.arange(nreal)):
-        
+
         f0, f2 = get_sample_field_bu(cl_TT=cl_GG_unbinned[:, zi, zi],
-                                  cl_EE=cl_LL_unbinned[:, zi, zi],
-                                  cl_BB=cl_BB_unbinned[:, zi, zi],
-                                  cl_TE=cl_GL_unbinned[:, zi, zi],
-                                  nside=nside)
+                                     cl_EE=cl_LL_unbinned[:, zi, zi],
+                                     cl_BB=cl_BB_unbinned[:, zi, zi],
+                                     cl_TE=cl_GL_unbinned[:, zi, zi],
+                                     nside=nside)
 
         if probe == 'GG':
             cl_sim = compute_master(f0, f0, w00)[0]
@@ -602,7 +602,7 @@ if part_sky:
     f0 = np.empty(zbins_use, dtype=object)
     f2 = np.empty(zbins_use, dtype=object)
     for zi in range(zbins_use):
-        map_T, map_Q, map_U =  cls_to_maps(cl_TT=cl_GG_unbinned[:, zi, zi],
+        map_T, map_Q, map_U = cls_to_maps(cl_TT=cl_GG_unbinned[:, zi, zi],
                                           cl_EE=cl_LL_unbinned[:, zi, zi],
                                           cl_BB=cl_BB_unbinned[:, zi, zi],
                                           cl_TE=cl_GL_unbinned[:, zi, zi],
@@ -611,36 +611,26 @@ if part_sky:
 
     # Create a map(s) from cl(s) to visualize the simulated - masked - maps, just for fun
     zi = 0
-    map_t, map_q, map_u = hp.synfast([cl_GG_unbinned[:, zi, zi], cl_LL_unbinned[:, zi, zi],
-                                      cl_BB_unbinned[:, zi, zi], cl_GL_unbinned[:, zi, zi]], nside)
+    map_t, map_q, map_u = cls_to_maps(cl_TT=cl_GG_unbinned[:, zi, zi],
+                                      cl_EE=cl_LL_unbinned[:, zi, zi],
+                                      cl_BB=cl_BB_unbinned[:, zi, zi],
+                                      cl_TE=cl_GL_unbinned[:, zi, zi],
+                                      nside=nside)
     hp.mollview(map_t * mask, title=f'masked map T, zi={zi}', cmap='inferno_r')
     hp.mollview(map_q * mask, title=f'masked map Q, zi={zi}', cmap='inferno_r')
     hp.mollview(map_u * mask, title=f'masked map U, zi={zi}', cmap='inferno_r')
 
-    """
-    Mode - coupling matrix. The matrix will have shape(nrows, nrows), with nrows = n_cls * n_ells,
-    where n_cls is the number of power spectra(1, 2 or 4 for spin 0 - 0, spin 0 - 2
-    and spin 2 - 2 correlations), and n_ells = lmax + 1, and lmax is the maximum multipole
-    associated with this workspace. The assumed ordering of power spectra is such that the L - th element
-    of the i - th power spectrum be stored with index L * n_cls + i.
-    """
-    # plot coupling matrix
-    # for w, title in [(w00, 'w00_mask'),
-    #                  (w02, 'w02_mask'),
-    #                  (w22, 'w22_mask')
-    #                  ]:
-
-    #     mixing_matrix = w.get_coupling_matrix()
-    #     plt.figure(figsize=(10, 8))
-    #     plt.matshow(np.log10(np.fabs(mixing_matrix)))
-    #     plt.colorbar()
-    #     plt.xlabel('$\ell$ idx')
-    #     plt.ylabel('$\ell\'$ idx')
-    #     plt.title(f'log10 abs {title} mixing matrix')
-    #     plt.tight_layout()
-    #     plt.show()
-
     # ! COMPUTE AND COMPARE DIFFERENT VERSIONS OF THE Cls
+    
+    # with healpy
+    _map_t = hp.remove_monopole(map_t)
+    _map_q = hp.remove_monopole(map_q)
+    _map_u = hp.remove_monopole(map_u)
+    hp_pcl_tot = hp.anafast([_map_t * mask, _map_q * mask, _map_u * mask])
+    hp_pcl_GG = hp_pcl_tot[0, :]
+    hp_pcl_LL = hp_pcl_tot[1, :]
+    hp_pcl_GL = hp_pcl_tot[3, :]
+
     # TODO add noise?
     cl_GG_master = np.zeros((nbl_eff, zbins_use, zbins_use))
     cl_GL_master = np.zeros((nbl_eff, zbins_use, zbins_use))
@@ -661,34 +651,10 @@ if part_sky:
             pcl_GG_nmt[:, zi, zj] = nmt.compute_coupled_cell(f0[zi], f0[zj])[0, :]
             pcl_GL_nmt[:, zi, zj] = nmt.compute_coupled_cell(f0[zi], f2[zj])[0, :]
             pcl_LL_nmt[:, zi, zj] = nmt.compute_coupled_cell(f2[zi], f2[zj])[0, :]
-            # "bandpowers" = binned (pseudo?)-C_l
+            # "bandpowers" = binned (pseudo)-C_l
             bpw_pcl_GG_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_GG_nmt[:, zi, zj])
             bpw_pcl_GL_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_GL_nmt[:, zi, zj])
             bpw_pcl_LL_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_LL_nmt[:, zi, zj])
-
-    # TODO better understand third dimension
-    # pseudo_cl_GL[zi, zi, 0, :] matches cl_LL_3D[zi, zi, :]
-    # pseudo_cl_LL[zi, zi, 1&2, :] are very close to 0 (BE, EB?)
-    # pseudo_cl_LL[zi, zi, 3, :] is the closest to cl_LL_3D[zi, zi, :]
-
-    # ! healpy coupled cls
-
-    # do this or multiply by mask, I don't see any difference
-    # from https://stackoverflow.com/questions/54775777/how-does-anafast-take-care-of-masking-in-healpy
-    # masked_map = np.where(mask, map_t, hp.UNSEEN)
-    # pseudo_cl_GG_hp_2 = hp.anafast(masked_map)
-
-    _map_t = hp.remove_monopole(map_t)
-    _map_q = hp.remove_monopole(map_q)
-    _map_u = hp.remove_monopole(map_u)
-    # If needed, remove dipole as well (optional)
-    # _map_t = hp.remove_dipole(_map_t)
-    # _map_q = hp.remove_dipole(_map_q)
-    # _map_u = hp.remove_dipole(_map_u)
-    hp_pcl_tot = hp.anafast([_map_t * mask, _map_q * mask, _map_u * mask])
-    hp_pcl_GG = hp_pcl_tot[0, :]
-    hp_pcl_LL = hp_pcl_tot[1, :]
-    hp_pcl_GL = hp_pcl_tot[3, :]
 
     # ! compare results
     block = 'LLLL'
@@ -755,7 +721,7 @@ if part_sky:
     # n_cls is the number of power spectra (1, 2 or 4 for spin 0-0, spin 0-2 and spin 2-2 correlations)
 
     zi, zj, zk, zl = 0, 0, 0, 0
-    block = 'GLGL'
+    block = 'LLLL'
 
     if coupled:
         print('Inputting pseudo-Cls/fsky to use INKA...')
@@ -1099,7 +1065,7 @@ if part_sky:
         diag_nmt = np.fabs(diag_nmt)
         diag_sim = np.fabs(diag_sim)
         ax[0].loglog(l_mid, diag_nmt, label='abs ' + label.format(off_diag=k), marker='.', ls=ls_nmt, c=clr[k])
-        ax[0].loglog(l_mid, diag_sim, marker='', ls=ls_sim, c=clr[k], alpha=0.7)
+        ax[0].loglog(l_mid, diag_sim, marker='', ls=ls_sim, c=clr[k], marker='.', alpha=0.7)
 
     ax[1].plot(ells_eff, utils.percent_diff(np.diag(binned_cov_sb), np.diag(cov_nmt)),
                marker='.', label='sb/nmt', c='tab:orange')
