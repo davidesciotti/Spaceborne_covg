@@ -43,12 +43,13 @@ nside: 512
 apodize_mask: True
 aposize: 0.1 # apodization scale in deg
 ells_per_band: 50 # number of multipole values per bandpower
-nreal: 10000
+nreal: 30
+load_simulated_cls: False  # whether to load simulated cls from file
 coupled: False  # compute the covariance of the coupled or uncoupled cls
 which_ell_weights: get_weight_list()  # get_weight_list() or get_bandpower_windows()
 which_cls: namaster  # namaster or healpy
 compute_namaster_sims: False
-load_simulated_cls: True
+use_INKA: True
 
 # datavector and covariance ordering options
 triu_tril: "triu" # or 'tril'. Which elements of the (symmetric) auto-spectra are kept
