@@ -101,9 +101,11 @@ def find_ellmin_from_bpw(bpw, ells, threshold):
     return ell_min
 
 
-def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_maps, coupled, which_cls, batch_size=10):
-    if not coupled and which_cls == 'healpy' and int(survey_area_deg2) != 41252:
-        raise ValueError('healpy can only compute coupled cls in the presence of a mask')
+def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, coupled, which_cls):
+
+    # both healpy anafast and nmt.compute_coupled_cell return the coupled cls. Dividing by fsky gives a rough
+    # approximation of the true Cls
+    correction_factor = 1. if coupled else fsky
 
     pseudo_cl_tt_list = []
     pseudo_cl_te_list = []
@@ -113,36 +115,34 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_m
 
     for _ in tqdm(range(nreal)):
 
-        map_t, map_q, map_u = hp.synfast([cl_TT, cl_EE, cl_BB, cl_TE], nside)
+        map_T, map_Q, map_U = cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
 
         if which_cls == 'namaster':
 
-            # old
-            # f0 = nmt.NmtField(mask, [map_t], lite=True)
-            # f2 = nmt.NmtField(mask, [map_q, map_u], lite=True)
-
-            map_T, map_Q, map_U = cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
             f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
 
             if coupled:
-                pseudo_cl_tt = nmt.compute_coupled_cell(f0, f0)[0]
-                pseudo_cl_te = nmt.compute_coupled_cell(f0, f2)[0]
-                pseudo_cl_ee = nmt.compute_coupled_cell(f2, f2)[0]
+                # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
+                pseudo_cl_tt = nmt.compute_coupled_cell(f0, f0)[0] / correction_factor
+                pseudo_cl_te = nmt.compute_coupled_cell(f0, f2)[0] / correction_factor
+                pseudo_cl_ee = nmt.compute_coupled_cell(f2, f2)[0] / correction_factor
             else:
+                # best estimator for the true Cls
                 pseudo_cl_tt = compute_master(f0, f0, w00)
                 pseudo_cl_te = compute_master(f0, f2, w02)
                 pseudo_cl_ee = compute_master(f2, f2, w22)
 
         elif which_cls == 'healpy':
 
-            map_t = hp.remove_monopole(map_t)
-            map_q = hp.remove_monopole(map_q)
-            map_u = hp.remove_monopole(map_u)
+            map_T = hp.remove_monopole(map_T)
+            map_Q = hp.remove_monopole(map_Q)
+            map_U = hp.remove_monopole(map_U)
 
-            pseudo_cl_hp_tot = hp.anafast([map_t * mask, map_q * mask, map_u * mask])
-            pseudo_cl_tt = pseudo_cl_hp_tot[0, :]
-            pseudo_cl_ee = pseudo_cl_hp_tot[1, :]
-            pseudo_cl_te = pseudo_cl_hp_tot[3, :]
+            # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
+            pseudo_cl_hp_tot = hp.anafast([map_T * mask, map_Q * mask, map_U * mask])
+            pseudo_cl_tt = pseudo_cl_hp_tot[0, :] / correction_factor
+            pseudo_cl_ee = pseudo_cl_hp_tot[1, :] / correction_factor
+            pseudo_cl_te = pseudo_cl_hp_tot[3, :] / correction_factor
 
         else:
             raise ValueError('which_cls must be namaster or healpy')
@@ -335,6 +335,7 @@ if part_sky:
     nreal = cfg['nreal']
     zbins_use = cfg['zbins_use']
     coupled = cfg['coupled']
+    use_INKA = cfg['use_INKA']
 
     coupled_label = 'coupled' if coupled else 'uncoupled'
 
@@ -471,7 +472,7 @@ if part_sky:
     print('lmax_mask:', lmax_mask)
     print('lmax_healpy:', lmax_healpy)
     print('nside:', nside)
-    print('fsky_mask after apodization:', fsky)
+    print('fsky after apodization:', fsky)
 
     # cut and bin the theory
     cl_GG_unbinned = cl_GG_unbinned[:lmax, :zbins_use, :zbins_use]
@@ -626,49 +627,44 @@ if part_sky:
     zi, zj, zk, zl = 0, 0, 0, 0
     block = 'LLLL'
 
-    if coupled:
-        raise ValueError, 'coupled case not fully implemented yet'
-        print('Inputting pseudo-Cls/fsky to use INKA...')
-        nbl_4covnmt = nbl_tot
+    # if coupled:
+    #     raise ValueError('coupled case not fully implemented yet')
+    #     print('Inputting pseudo-Cls/fsky to use INKA...')
+    #     nbl_4covnmt = nbl_tot
+    #     cl_GG_4covnmt = pcl_GG_nmt[:, zi, zj] / fsky
+    #     cl_GL_4covnmt = pcl_GL_nmt[:, zi, zj] / fsky
+    #     cl_LL_4covnmt = pcl_LL_nmt[:, zi, zj] / fsky
+    #     cl_GG_4covsb = pcl_GG_nmt  # or bpw_pcl_GG_nmt?
+    #     cl_GL_4covsb = pcl_GL_nmt  # or bpw_pcl_GL_nmt?
+    #     cl_LL_4covsb = pcl_LL_nmt  # or bpw_pcl_LL_nmt?
+    #     ells_4covsb = ells_tot
+    #     nbl_4covsb = len(ells_4covsb)
+    #     delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
+    # else:
+
+    nbl_4covnmt = nbl_eff
+    ells_4covsb = ells_tot
+    nbl_4covsb = len(ells_4covsb)
+    delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
+    cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
+    cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
+    cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
+    if use_INKA:
         cl_GG_4covnmt = pcl_GG_nmt[:, zi, zj] / fsky
         cl_GL_4covnmt = pcl_GL_nmt[:, zi, zj] / fsky
         cl_LL_4covnmt = pcl_LL_nmt[:, zi, zj] / fsky
-        cl_GG_4covsb = pcl_GG_nmt  # or bpw_pcl_GG_nmt?
-        cl_GL_4covsb = pcl_GL_nmt  # or bpw_pcl_GL_nmt?
-        cl_LL_4covsb = pcl_LL_nmt  # or bpw_pcl_LL_nmt?
-        ells_4covsb = ells_tot
-        nbl_4covsb = len(ells_4covsb)
-        delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
+
+        # TODO not super sure about this
+        # cl_GG_4covsb = pcl_GG_nmt[:, :zbins_use, :zbins_use] / fsky
+        # cl_GL_4covsb = pcl_GL_nmt[:, :zbins_use, :zbins_use] / fsky
+        # cl_LL_4covsb = pcl_LL_nmt[:, :zbins_use, :zbins_use] / fsky
     else:
-        nbl_4covnmt = nbl_eff
         cl_GG_4covnmt = cl_GG_unbinned[:, zi, zj]
         cl_GL_4covnmt = cl_GL_unbinned[:, zi, zj]
         cl_LL_4covnmt = cl_LL_unbinned[:, zi, zj]
-
-        # either:
-        #   * pass bpw cls (cl_AB_binned)
-        # cl_GG_4covsb = cl_GG_binned[:, :zbins_use, :zbins_use]
-        # cl_GL_4covsb = cl_GL_binned[:, :zbins_use, :zbins_use]
-        # cl_LL_4covsb = cl_LL_binned[:, :zbins_use, :zbins_use]
-
-        #   * pass unnbinned cls interpolated at ells_eff values (very similar to above)
-        # spline_GG = interp1d(ells_tot, cl_GG_unbinned, axis=0)
-        # spline_GL = interp1d(ells_tot, cl_GL_unbinned, axis=0)
-        # spline_LL = interp1d(ells_tot, cl_LL_unbinned, axis=0)
-        # cl_GG_4covsb = spline_GG(ells_eff)[:, :zbins_use, :zbins_use]
-        # cl_GL_4covsb = spline_GL(ells_eff)[:, :zbins_use, :zbins_use]
-        # cl_LL_4covsb = spline_LL(ells_eff)[:, :zbins_use, :zbins_use]
-        # nbl_4covsb = nbl_eff
-        # delta_ells_4covsb = delta_ells_bpw
-        # ells_4covsb = ells_eff
-
-        #   * pass unbinned cls and bin the covariance matrix
-        cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
-        cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
-        cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
-        ells_4covsb = ells_tot
-        nbl_4covsb = len(ells_4covsb)
-        delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
+        # cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
+        # cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
+        # cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
 
     cl_tt = cl_GG_4covnmt
     cl_te = cl_GL_4covnmt
@@ -677,129 +673,8 @@ if part_sky:
     cl_eb = np.zeros_like(cl_GG_4covnmt)
     cl_bb = np.zeros_like(cl_GG_4covnmt)
 
-    # * NOTE: the order of the arguments (in particular for the cls) is the following
-    # * spin_a1, spin_a2, spin_b1, spin_b2,
-    # * cla1b1, cla1b2, cla2b1, cla2b2
-    # * the order of the output dimensions depends on the order of the input list. See below:
-    # * [cl_te, cl_tb] - > TE=0, TB=1
-    # * covar_TT_TE = covar_00_02[:, 0, :, 0]x
-    # * covar_TT_TB = covar_00_02[:, 0, :, 1]
-    # The next few lines show how to extract the covariance matrices
-    # for different spin combinations.
-    covar_00_00 = nmt.gaussian_covariance(cw,
-                                          0, 0, 0, 0,  # Spins of the 4 fields
-                                          [cl_tt],  # TT
-                                          [cl_tt],  # TT
-                                          [cl_tt],  # TT
-                                          [cl_tt],  # TT
-                                          coupled=coupled,
-                                          wa=w00, wb=w00).reshape([nbl_4covnmt, 1,
-                                                                   nbl_4covnmt, 1])
-    covar_TT_TT = covar_00_00[:, 0, :, 0]
-
-    # TODO start - check this better - still new
-    covar_00_02 = nmt.gaussian_covariance(cw,
-                                          0, 0, 0, 2,  # Spins of the 4 fields
-                                          [cl_tt],  # TT
-                                          [cl_te, cl_tb],  # TE, TB
-                                          [cl_tt],  # TT
-                                          [cl_te, cl_tb],  # TE, TB
-                                          coupled=coupled,
-                                          wa=w00, wb=w02).reshape([nbl_4covnmt, 1,
-                                                                   nbl_4covnmt, 2])
-    covar_TT_TE = covar_00_02[:, 0, :, 0]
-    covar_TT_TB = covar_00_02[:, 0, :, 1]
-    # TODO end - check this better - still new
-
-    covar_02_02 = nmt.gaussian_covariance(cw,
-                                          0, 2, 0, 2,  # Spins of the 4 fields
-                                          [cl_tt],  # TT
-                                          [cl_te, cl_tb],  # TE, TB
-                                          [cl_te, cl_tb],  # ET, BT
-                                          [cl_ee, cl_eb,
-                                              cl_eb, cl_bb],  # EE, EB, BE, BB
-                                          coupled=coupled,
-                                          wa=w02, wb=w02).reshape([nbl_4covnmt, 2,
-                                                                   nbl_4covnmt, 2])
-    covar_TE_TE = covar_02_02[:, 0, :, 0]
-    covar_TE_TB = covar_02_02[:, 0, :, 1]
-    covar_TB_TE = covar_02_02[:, 1, :, 0]
-    covar_TB_TB = covar_02_02[:, 1, :, 1]
-
-    covar_00_22 = nmt.gaussian_covariance(cw,
-                                          0, 0, 2, 2,  # Spins of the 4 fields
-                                          [cl_te, cl_tb],  # TE, TB
-                                          [cl_te, cl_tb],  # TE, TB
-                                          [cl_te, cl_tb],  # TE, TB
-                                          [cl_te, cl_tb],  # TE, TB
-                                          coupled=coupled,
-                                          wa=w00, wb=w22).reshape([nbl_4covnmt, 1,
-                                                                   nbl_4covnmt, 4])
-    covar_TT_EE = covar_00_22[:, 0, :, 0]
-    covar_TT_EB = covar_00_22[:, 0, :, 1]
-    covar_TT_BE = covar_00_22[:, 0, :, 2]
-    covar_TT_BB = covar_00_22[:, 0, :, 3]
-
-    covar_02_22 = nmt.gaussian_covariance(cw,
-                                          0, 2, 2, 2,  # Spins of the 4 fields
-                                          [cl_te, cl_tb],  # TE, TB
-                                          [cl_te, cl_tb],  # TE, TB
-                                          [cl_ee, cl_eb,
-                                              cl_eb, cl_bb],  # EE, EB, BE, BB
-                                          [cl_ee, cl_eb,
-                                              cl_eb, cl_bb],  # EE, EB, BE, BB
-                                          coupled=coupled,
-                                          wa=w02, wb=w22).reshape([nbl_4covnmt, 2,
-                                                                   nbl_4covnmt, 4])
-    covar_TE_EE = covar_02_22[:, 0, :, 0]
-    covar_TE_EB = covar_02_22[:, 0, :, 1]
-    covar_TE_BE = covar_02_22[:, 0, :, 2]
-    covar_TE_BB = covar_02_22[:, 0, :, 3]
-    covar_TB_EE = covar_02_22[:, 1, :, 0]
-    covar_TB_EB = covar_02_22[:, 1, :, 1]
-    covar_TB_BE = covar_02_22[:, 1, :, 2]
-    covar_TB_BB = covar_02_22[:, 1, :, 3]
-
-    covar_22_22 = nmt.gaussian_covariance(cw,
-                                          2, 2, 2, 2,  # Spins of the 4 fields
-                                          [cl_ee, cl_eb,
-                                           cl_eb, cl_bb],  # EE, EB, BE, BB
-                                          [cl_ee, cl_eb,
-                                              cl_eb, cl_bb],  # EE, EB, BE, BB
-                                          [cl_ee, cl_eb,
-                                              cl_eb, cl_bb],  # EE, EB, BE, BB
-                                          [cl_ee, cl_eb,
-                                              cl_eb, cl_bb],  # EE, EB, BE, BB
-                                          coupled=coupled,
-                                          wa=w22, wb=w22).reshape([nbl_4covnmt, 4,
-                                                                   nbl_4covnmt, 4])
-
-    covar_EE_EE = covar_22_22[:, 0, :, 0]
-    covar_EE_EB = covar_22_22[:, 0, :, 1]
-    covar_EE_BE = covar_22_22[:, 0, :, 2]
-    covar_EE_BB = covar_22_22[:, 0, :, 3]
-    covar_EB_EE = covar_22_22[:, 1, :, 0]
-    covar_EB_EB = covar_22_22[:, 1, :, 1]
-    covar_EB_BE = covar_22_22[:, 1, :, 2]
-    covar_EB_BB = covar_22_22[:, 1, :, 3]
-    covar_BE_EE = covar_22_22[:, 2, :, 0]
-    covar_BE_EB = covar_22_22[:, 2, :, 1]
-    covar_BE_BE = covar_22_22[:, 2, :, 2]
-    covar_BE_BB = covar_22_22[:, 2, :, 3]
-    covar_BB_EE = covar_22_22[:, 3, :, 0]
-    covar_BB_EB = covar_22_22[:, 3, :, 1]
-    covar_BB_BE = covar_22_22[:, 3, :, 2]
-    covar_BB_BB = covar_22_22[:, 3, :, 3]
-
-    # build dict with relevant covmats
-    cov_nmt_dict = {
-        'LLLL': covar_EE_EE,
-        'GLLL': covar_TE_EE,
-        'GGLL': covar_TT_EE,
-        'GLGL': covar_TE_TE,
-        'GGGL': covar_TT_TE,
-        'GGGG': covar_TT_TT,
-    }
+    cov_nmt_dict = utils.nmt_gaussian_cov_to_dict(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb,
+                                                  coupled, cw, w00, w02, w22, nbl_4covnmt)
 
     probename_dict = {
         'L': 0,
@@ -876,13 +751,13 @@ if part_sky:
     # ! SAMPLE COVARIANCE - DAVIDE
     if block == 'GGGG':
         sim_cl_dict_key = 'pseudo_cl_tt'
-        cl_use = cl_GG_unbinned[:, zi, zj]
+        cl_plt = cl_GG_unbinned[:, zi, zj]
     elif block == 'GLGL':
         sim_cl_dict_key = 'pseudo_cl_te'
-        cl_use = cl_GL_unbinned[:, zi, zj]
+        cl_plt = cl_GL_unbinned[:, zi, zj]
     elif block == 'LLLL':
         sim_cl_dict_key = 'pseudo_cl_ee'
-        cl_use = cl_LL_unbinned[:, zi, zj]
+        cl_plt = cl_LL_unbinned[:, zi, zj]
 
     if not cfg['load_simulated_cls']:
         print('Producing gaussian simulations...')
@@ -892,12 +767,11 @@ if part_sky:
                                                    cl_GL_unbinned[:, zi, zi],
                                                    nside=nside, nreal=nreal,
                                                    mask=mask,
-                                                   load_maps=False,
                                                    coupled=coupled,
                                                    which_cls=cfg['which_cls'])
         print('...done in {:.2f}s'.format(time.perf_counter() - start_time))
         np.save(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'
-                f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}.npy', simulated_cls_dict, allow_pickle=True)
+                f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}_INKA{use_INKA}.npy', simulated_cls_dict, allow_pickle=True)
 
     elif cfg['load_simulated_cls']:
         simulated_cls_dict = np.load(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'
@@ -927,8 +801,8 @@ if part_sky:
         plt.semilogy(ells_eff, simulated_cls[i, :], label=f'simulated {coupled_label} cls' if count == 0 else '',
                      marker='.')
         count += 1
-    plt.loglog(cl_use, label='theory cls', c='tab:orange')
-    plt.loglog(cl_use * fsky, label='theory cls*fsky_mask', c='k', ls='--')
+    plt.loglog(cl_plt, label='theory cls', c='tab:orange')
+    plt.loglog(cl_plt * fsky, label='theory cls*fsky', c='k', ls='--')
     plt.axvline(lmax_healpy_safe, c='k', ls='--', label='1.5 * nside')
     plt.legend()
     plt.xlabel(r'$\ell$')
@@ -946,11 +820,11 @@ if part_sky:
     label = r'cov_nmt, $\ell^\prime=\ell+{off_diag:d}$'
     diag_label = '$\\ell^\prime=\\ell$'
     title = f'cov {block}\nsurvey_area = {survey_area_deg2} deg2\nlinear binning,'\
-        f' $\Delta\ell={delta_ells_bpw[0]:.1f}$'
+        f' $\Delta\ell={delta_ells_bpw[0]:.1f}$, use_INKA {use_INKA}'
     fig, ax = plt.subplots(2, 1, figsize=(10, 10), sharex=True,
                            gridspec_kw={'wspace': 0, 'hspace': 0, 'height_ratios': [2, 1]})
     ax[0].set_title(title)
-    ax[0].loglog(ells_eff, np.diag(binned_cov_sb), label=f'cov_sb/fsky_mask, {diag_label}', marker='.', c='tab:orange')
+    ax[0].loglog(ells_eff, np.diag(binned_cov_sb), label=f'cov_sb/fsky, {diag_label}', marker='.', c='tab:orange')
     ax[0].loglog(ells_eff, np.diag(cov_nmt), label=f'cov_nmt, {diag_label}', marker='.', c=clr[0])
     ax[0].loglog(ells_eff, np.diag(cov_sims), label=f'cov_sims, {diag_label}', marker='.', c=clr[0], ls='--')
     # ax[0].loglog(ells_eff, np.diag(cov_sims_nmt), label=f'cov_sims_nmt, {diag_label}', marker='.', c=clr[0], ls=':')
@@ -969,7 +843,7 @@ if part_sky:
         diag_nmt = np.fabs(diag_nmt)
         diag_sim = np.fabs(diag_sim)
         ax[0].loglog(l_mid, diag_nmt, label='abs ' + label.format(off_diag=k), marker='.', ls=ls_nmt, c=clr[k])
-        ax[0].loglog(l_mid, diag_sim, marker='', ls=ls_sim, c=clr[k], marker='.', alpha=0.7)
+        ax[0].loglog(l_mid, diag_sim, ls=ls_sim, c=clr[k], marker='.', alpha=0.7)
 
     ax[1].plot(ells_eff, utils.percent_diff(np.diag(binned_cov_sb), np.diag(cov_nmt)),
                marker='.', label='sb/nmt', c='tab:orange')
@@ -978,14 +852,14 @@ if part_sky:
     # ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sims_nmt), np.diag(cov_nmt)),
     #    marker='.', label='sims_nmt/nmt', c=clr[0], ls=':')
 
-    ax[1].set_ylabel('% diff cov fsky_mask/part_sky')
+    ax[1].set_ylabel('% diff cov fsky/part_sky')
     ax[1].set_xlabel(r'$\ell$')
     ax[1].fill_between(ells_eff, -10, 10, color='k', alpha=0.1)
     ax[1].axhline(y=0, color='k', alpha=0.5, ls='--')
-    ax[0].axvline(lmax_healpy_safe, color='k', alpha=0.5, ls='--')
-    ax[1].axvline(lmax_healpy_safe, color='k', alpha=0.5, ls='--', label='1.5 * nside')
-    ax[0].axvline(2 * nside, color='k', alpha=0.5, ls='--')
-    ax[1].axvline(2 * nside, color='k', alpha=0.5, ls=':', label='2 * nside')
+    ax[0].axvline(lmax_healpy_safe, color='k', alpha=0.5, ls='--', label='1.5 * nside')
+    ax[1].axvline(lmax_healpy_safe, color='k', alpha=0.5, ls='--')
+    ax[0].axvline(2 * nside, color='k', alpha=0.5, ls=':', label='2 * nside')
+    ax[1].axvline(2 * nside, color='k', alpha=0.5, ls=':')
     ax[1].legend()
     ax[0].set_ylabel('diag cov')
     ax[0].legend()
@@ -1009,7 +883,7 @@ if part_sky:
     cax2 = ax[1, 0].matshow(np.log10(np.fabs(cov_nmt)))
     cax3 = ax[2, 0].matshow(np.log10(np.fabs(cov_sims)))
     cax4 = ax[3, 0].matshow(np.log10(mask_cov_abs_diff_sims))
-    ax[0, 0].set_title(f'log10 abs \nfull_sky/fsky_mask cov')
+    ax[0, 0].set_title(f'log10 abs \nfull_sky/fsky cov')
     ax[1, 0].set_title(f'log10 abs \nNaMaster cov')
     ax[2, 0].set_title(f'log10 abs \nsim cov')
     ax[3, 0].set_title(f'log10 abs \nsim/nmt [%]\n{threshold}% threshold')
@@ -1023,7 +897,7 @@ if part_sky:
     cbar_corr_2 = ax[1, 1].matshow(corr_nmt, vmin=-1, vmax=1, cmap='RdBu_r')  # Apply same cmap and limits
     cbar_corr_3 = ax[2, 1].matshow(corr_sims, vmin=-1, vmax=1, cmap='RdBu_r')  # Apply same cmap and limits
     cbar_corr_4 = ax[3, 1].matshow(np.log10(mask_corr_abs_diff_sims), cmap='RdBu_r')  # Apply same cmap and limits
-    ax[0, 1].set_title(f'full_sky/fsky_mask corr')
+    ax[0, 1].set_title(f'full_sky/fsky corr')
     ax[1, 1].set_title(f'NaMaster corr')
     ax[2, 1].set_title(f'sim corr')
     ax[3, 1].set_title(f'log10 abs \nsim/nmt [%]\n{threshold}% threshold')
@@ -1103,8 +977,8 @@ if part_sky:
 
     # plt.scatter(ell_eff, cl_GG_3D_measured[:, zi, zj], label=r'Reconstructed $C_\ell$', marker='.', alpha=0.6)
     # plt.plot(ells_eff, bpow_GG_3D[:, zi, zj], label=r'Bandpower $C_\ell$', alpha=0.6)
-    # plt.plot(ells_unbinned[:lmax], pseudoCl_GG_3d_1[:, zi, zj]/fsky_mask, label=r'pseudo $C_\ell$/fsky_mask', alpha=0.6)
-    # plt.plot(ells_unbinned[:lmax], pseudoCl_GG_3d_2[:, zi, zj]/fsky_mask, label=r'pseudo $C_\ell$/fsky_mask', alpha=0.6)
+    # plt.plot(ells_unbinned[:lmax], pseudoCl_GG_3d_1[:, zi, zj]/fsky, label=r'pseudo $C_\ell$/fsky', alpha=0.6)
+    # plt.plot(ells_unbinned[:lmax], pseudoCl_GG_3d_2[:, zi, zj]/fsky, label=r'pseudo $C_\ell$/fsky', alpha=0.6)
 
     plt.axvline(x=lmax, ls='--', c='k', label=r'$\ell_{max}$ healpy')
     plt.axvline(x=lmax, ls='--', c='k', label=r'$\ell_{max}$ mask')
