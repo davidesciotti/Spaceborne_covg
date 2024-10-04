@@ -14,13 +14,28 @@ import utils
 import os
 ROOT = os.getenv("ROOT")
 
-def get_sample_field(cl_TT, cl_EE, cl_BB, cl_TE, nside):
+def get_sample_field_bu(cl_TT, cl_EE, cl_BB, cl_TE, nside):
     """This routine generates a spin-0 and a spin-2 Gaussian random field based
     on these power spectra.
     From https://namaster.readthedocs.io/en/latest/source/sample_covariance.html
     """
     map_t, map_q, map_u = hp.synfast([cl_TT, cl_EE, cl_BB, cl_TE], nside)
     return nmt.NmtField(mask, [map_t], lite=False), nmt.NmtField(mask, [map_q, map_u], lite=False)
+
+def get_sample_field(cl_TT, cl_EE, cl_BB, cl_TE, nside):
+    """This routine generates a spin-0 and a spin-2 Gaussian random field based
+    on these power spectra.
+    From https://namaster.readthedocs.io/en/latest/source/sample_covariance.html
+    """
+    alm, Elm, Blm = hp.synalm([cl_TT, cl_EE, cl_BB, cl_TE, 0*cl_TE, 0*cl_TE],
+                              lmax=3*nside-1, new=True)
+    mpQ, mpU = hp.alm2map_spin([Elm, Blm], nside, 2, 3*nside-1)
+    mpa = hp.alm2map(alm, nside)
+    f0 = nmt.NmtField(mask, [mpa], n_iter=0)
+    f2 = nmt.NmtField(mask, [mpQ, mpU], spin=2, n_iter=0)
+    #map_t, map_q, map_u = hp.synfast([cl_TT, cl_EE, cl_BB, cl_TE], nside)
+    #return nmt.NmtField(mask, [map_t], lite=False), nmt.NmtField(mask, [map_q, map_u], lite=False)
+    return f0, f2
 
 
 def compute_master(f_a, f_b, wsp):
@@ -60,7 +75,7 @@ def find_ellmin_from_bpw(bpw, ells, threshold):
     return ell_min
 
 
-def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_maps, coupled, which_cls):
+def produce_gaussian_sims_bu(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_maps, coupled, which_cls):
 
     # TODO remove monopole from the map before running anafast to reduce boundary effects?
     # TODO this is suggested in anafast documentation
@@ -153,6 +168,65 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_m
     print('...done')
 
     return sim_cls_dict
+
+def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_maps, coupled, which_cls, batch_size=10):
+    if not coupled and which_cls == 'healpy' and int(survey_area_deg2) != 41252:
+        raise ValueError('healpy can only compute coupled cls in the presence of a mask')
+
+    pseudo_cl_tt_list = []
+    pseudo_cl_te_list = []
+    pseudo_cl_ee_list = []
+
+    print(f'Generating {nreal} maps for nside {nside} and computing cls with {which_cls}...')
+
+    for _ in tqdm(range(nreal)):
+        
+        map_t, map_q, map_u = hp.synfast([cl_TT, cl_EE, cl_BB, cl_TE], nside)
+
+        if which_cls == 'namaster':
+            
+            # old
+            # f0 = nmt.NmtField(mask, [map_t], lite=True)
+            # f2 = nmt.NmtField(mask, [map_q, map_u], lite=True)
+
+            f0, f2 = get_sample_field(cl_TT, cl_EE, cl_BB, cl_TE, nside)
+
+            if coupled:
+                pseudo_cl_tt = nmt.compute_coupled_cell(f0, f0)[0]
+                pseudo_cl_te = nmt.compute_coupled_cell(f0, f2)[0]
+                pseudo_cl_ee = nmt.compute_coupled_cell(f2, f2)[0]
+            else:
+                pseudo_cl_tt = compute_master(f0, f0, w00)
+                pseudo_cl_te = compute_master(f0, f2, w02)
+                pseudo_cl_ee = compute_master(f2, f2, w22)
+
+        elif which_cls == 'healpy':
+            
+            map_t = hp.remove_monopole(map_t)
+            map_q = hp.remove_monopole(map_q)
+            map_u = hp.remove_monopole(map_u)
+
+            pseudo_cl_hp_tot = hp.anafast([map_t * mask, map_q * mask, map_u * mask])
+            pseudo_cl_tt = pseudo_cl_hp_tot[0, :]
+            pseudo_cl_ee = pseudo_cl_hp_tot[1, :]
+            pseudo_cl_te = pseudo_cl_hp_tot[3, :]
+
+        else:
+            raise ValueError('which_cls must be namaster or healpy')
+
+        pseudo_cl_tt_list.append(pseudo_cl_tt)
+        pseudo_cl_te_list.append(pseudo_cl_te)
+        pseudo_cl_ee_list.append(pseudo_cl_ee)
+        
+    sim_cls_dict = {
+        'pseudo_cl_tt': np.array(pseudo_cl_tt_list),
+        'pseudo_cl_te': np.array(pseudo_cl_te_list),
+        'pseudo_cl_ee': np.array(pseudo_cl_ee_list),
+    }
+    print('...done')
+
+    return sim_cls_dict
+
 
 
 def sample_cov_nmt(zi, probe):
@@ -656,11 +730,9 @@ if part_sky:
     # shape: (n_cls, n_bpws, n_cls, lmax+1)
     # n_cls is the number of power spectra (1, 2 or 4 for spin 0-0, spin 0-2 and spin 2-2 correlations)
 
-    # ! cov testing options
     zi, zj, zk, zl = 0, 0, 0, 0
-    block = 'LLLL'
-    # ! end cov testing options
-
+    block = 'GLGL'
+    
     if coupled:
         print('Inputting pseudo-Cls/fsky to use INKA...')
         nbl_4covnmt = nbl_tot
@@ -869,10 +941,9 @@ if part_sky:
 
     cov_3x2pt_GO_10D = utils.covariance_einsum(cl_3x2pt_5d, noise_3x2pt_5d, fsky_mask,
                                                ells_4covsb, delta_ells_4covsb)
-
+    
     probe_a_ix, probe_b_ix, probe_c_ix, probe_d_ix = \
         probename_dict[block[0]], probename_dict[block[1]], probename_dict[block[2]], probename_dict[block[3]]
-
     cov_sb = cov_3x2pt_GO_10D[probe_a_ix, probe_b_ix, probe_c_ix, probe_d_ix, :, :, zi, zj, zk, zl]
     cov_nmt = cov_nmt_dict[block]
 
@@ -919,19 +990,27 @@ if part_sky:
         sim_cl_dict_key = 'pseudo_cl_ee'
         cl_use = cl_LL_unbinned[:, zi, zj]
 
-    print('Producing gaussian simulations...')
-    simulated_cls_dict = produce_gaussian_sims(cl_GG_unbinned[:, zi, zi],
-                                               cl_LL_unbinned[:, zi, zi],
-                                               cl_BB_unbinned[:, zi, zi],
-                                               cl_GL_unbinned[:, zi, zi],
-                                               nside=nside, nreal=nreal,
-                                               mask=mask,
-                                               load_maps=False,
-                                               coupled=coupled,
-                                               which_cls=cfg['which_cls'])
-    print('...done in {:.2f}s'.format(time.perf_counter() - start_time))
+    if not cfg['load_simulated_cls']:
+        print('Producing gaussian simulations...')
+        simulated_cls_dict = produce_gaussian_sims(cl_GG_unbinned[:, zi, zi],
+                                                cl_LL_unbinned[:, zi, zi],
+                                                cl_BB_unbinned[:, zi, zi],
+                                                cl_GL_unbinned[:, zi, zi],
+                                                nside=nside, nreal=nreal,
+                                                mask=mask,
+                                                load_maps=False,
+                                                coupled=coupled,
+                                                which_cls=cfg['which_cls'])
+        print('...done in {:.2f}s'.format(time.perf_counter() - start_time))
+        np.save(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'\
+            f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}.npy', simulated_cls_dict, allow_pickle=True)
 
+    elif cfg['load_simulated_cls']:
+        simulated_cls_dict = np.load(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'\
+            f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}.npy', allow_pickle=True).item()
+    
     simulated_cls = simulated_cls_dict[sim_cl_dict_key]
+    
 
     if simulated_cls.ndim == 3:
         simulated_cls = simulated_cls[:, 0, :]
@@ -983,26 +1062,26 @@ if part_sky:
     ax[0].loglog(ells_eff, np.diag(cov_sims), label=f'cov_sims, {diag_label}', marker='.', c=clr[0], ls='--')
     # ax[0].loglog(ells_eff, np.diag(cov_sims_nmt), label=f'cov_sims_nmt, {diag_label}', marker='.', c=clr[0], ls=':')
 
-    # for k in range(1, 2):
-    #     diag_nmt = np.diag(cov_nmt, k=k)
-    #     diag_sim = np.diag(cov_sims, k=k)
-    #     l_mid = get_lmid(ells_eff, k)
-    #     l_mid_tot = get_lmid(ells_tot, k)
-    #     # ls_nmt = '--' if np.all(diag_nmt < 0) else '-'
-    #     # ls_sim = '--' if np.all(diag_sim < 0) else '-'
-    #     ls_nmt = '-'
-    #     ls_sim = '--'
-    #     # diag_nmt = np.fabs(diag_nmt) if np.all(diag_nmt < 0) else diag_nmt
-    #     # diag_sim = np.fabs(diag_sim) if np.all(diag_sim < 0) else diag_sim
-    #     diag_nmt = np.fabs(diag_nmt)
-    #     diag_sim = np.fabs(diag_sim)
-    #     ax[0].loglog(l_mid, diag_nmt, label='abs ' + label.format(off_diag=k), marker='.', ls=ls_nmt, c=colors[k])
-    #     ax[0].loglog(l_mid, diag_sim, marker='', ls=ls_sim, c=colors[k], alpha=0.7)
+    for k in range(1, 2):
+        diag_nmt = np.diag(cov_nmt, k=k)
+        diag_sim = np.diag(cov_sims, k=k)
+        l_mid = get_lmid(ells_eff, k)
+        l_mid_tot = get_lmid(ells_tot, k)
+        # ls_nmt = '--' if np.all(diag_nmt < 0) else '-'
+        # ls_sim = '--' if np.all(diag_sim < 0) else '-'
+        ls_nmt = '-'
+        ls_sim = '--'
+        # diag_nmt = np.fabs(diag_nmt) if np.all(diag_nmt < 0) else diag_nmt
+        # diag_sim = np.fabs(diag_sim) if np.all(diag_sim < 0) else diag_sim
+        diag_nmt = np.fabs(diag_nmt)
+        diag_sim = np.fabs(diag_sim)
+        ax[0].loglog(l_mid, diag_nmt, label='abs ' + label.format(off_diag=k), marker='.', ls=ls_nmt, c=clr[k])
+        ax[0].loglog(l_mid, diag_sim, marker='', ls=ls_sim, c=clr[k], alpha=0.7)
 
     ax[1].plot(ells_eff, utils.percent_diff(np.diag(binned_cov_sb), np.diag(cov_nmt)),
                marker='.', label='sb/nmt', c='tab:orange')
-    # ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sims), np.diag(cov_nmt)),
-            #    marker='.', label='sim/nmt', c=clr[0], ls='--')
+    ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sims), np.diag(cov_nmt)),
+               marker='.', label='sim/nmt', c=clr[0], ls='--')
     # ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sims_nmt), np.diag(cov_nmt)),
     #    marker='.', label='sims_nmt/nmt', c=clr[0], ls=':')
 
@@ -1012,6 +1091,8 @@ if part_sky:
     ax[1].axhline(y=0, color='k', alpha=0.5, ls='--')
     ax[0].axvline(lmax_healpy_safe, color='k', alpha=0.5, ls='--')
     ax[1].axvline(lmax_healpy_safe, color='k', alpha=0.5, ls='--', label='1.5 * nside')
+    ax[0].axvline(2*nside, color='k', alpha=0.5, ls='--')
+    ax[1].axvline(2*nside, color='k', alpha=0.5, ls=':', label='2 * nside')
     ax[1].legend()
     ax[0].set_ylabel('diag cov')
     ax[0].legend()
@@ -1021,23 +1102,43 @@ if part_sky:
     # ! plot whole covmat, for zi = zj = zk = zl = 0
     corr_nmt = utils.cov2corr(cov_nmt)
     corr_sb = utils.cov2corr(binned_cov_sb)
-    corr_sim = utils.cov2corr(cov_sims)
+    corr_sims = utils.cov2corr(cov_sims)
+    
+    threshold = 10  # percent
+    cov_abs_diff_sims = np.fabs(utils.percent_diff(cov_sims, cov_nmt))
+    cor_abs_diff_sims = np.fabs(utils.percent_diff(corr_sims, corr_nmt))
+    mask_cov_abs_diff_sims = np.where(cov_abs_diff_sims < threshold, np.nan, cov_abs_diff_sims)
+    mask_corr_abs_diff_sims = np.where(cor_abs_diff_sims < threshold, np.nan, cor_abs_diff_sims)
 
-    fig, ax = plt.subplots(2, 2, figsize=(10, 12))
+    fig, ax = plt.subplots(4, 2, figsize=(10, 14))
     # covariance
     cax0 = ax[0, 0].matshow(np.log10(np.fabs(binned_cov_sb)))
     cax2 = ax[1, 0].matshow(np.log10(np.fabs(cov_nmt)))
+    cax3 = ax[2, 0].matshow(np.log10(np.fabs(cov_sims)))
+    cax4 = ax[3, 0].matshow(np.log10(mask_cov_abs_diff_sims))
     ax[0, 0].set_title(f'log10 abs \nfull_sky/fsky_mask cov')
     ax[1, 0].set_title(f'log10 abs \nNaMaster cov')
+    ax[2, 0].set_title(f'log10 abs \nsim cov')
+    ax[3, 0].set_title(f'log10 abs \nsim/nmt [%]\n{threshold}% threshold')
     fig.colorbar(cax0, ax=ax[0, 0])
     fig.colorbar(cax2, ax=ax[1, 0])
+    fig.colorbar(cax3, ax=ax[2, 0])
+    fig.colorbar(cax4, ax=ax[3, 0])
+    
     # correlation (common colorbar)
     cbar_corr_1 = ax[0, 1].matshow(corr_sb, vmin=-1, vmax=1, cmap='RdBu_r')
     cbar_corr_2 = ax[1, 1].matshow(corr_nmt, vmin=-1, vmax=1, cmap='RdBu_r')  # Apply same cmap and limits
+    cbar_corr_3 = ax[2, 1].matshow(corr_sims, vmin=-1, vmax=1, cmap='RdBu_r')  # Apply same cmap and limits
+    cbar_corr_4 = ax[3, 1].matshow(np.log10(mask_corr_abs_diff_sims), cmap='RdBu_r')  # Apply same cmap and limits
     ax[0, 1].set_title(f'full_sky/fsky_mask corr')
     ax[1, 1].set_title(f'NaMaster corr')
+    ax[2, 1].set_title(f'sim corr')
+    ax[3, 1].set_title(f'log10 abs \nsim/nmt [%]\n{threshold}% threshold')
     fig.colorbar(cbar_corr_1, ax=ax[0, 1])
     fig.colorbar(cbar_corr_2, ax=ax[1, 1])
+    fig.colorbar(cbar_corr_3, ax=ax[2, 1])
+    fig.colorbar(cbar_corr_4, ax=ax[3, 1])
+    
     # Adjust layout to make room for colorbars
     fig.suptitle(title)
     plt.tight_layout()
