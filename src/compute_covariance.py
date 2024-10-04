@@ -101,101 +101,6 @@ def find_ellmin_from_bpw(bpw, ells, threshold):
     return ell_min
 
 
-def produce_gaussian_sims_bu(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_maps, coupled, which_cls):
-
-    # TODO remove monopole from the map before running anafast to reduce boundary effects?
-    # TODO this is suggested in anafast documentation
-
-    # nside_mask = hp.get_nside(mask)
-    # if nside != nside_mask:
-    # mask = hp.ud_grade(mask, nside_out=nside)
-
-    if not coupled and which_cls == 'healpy' and int(survey_area_deg2) != 41252:
-        raise ValueError('healpy can only compute coupled cls in the presence of a mask')
-
-    pseudo_cl_tt_list = []
-    pseudo_cl_te_list = []
-    pseudo_cl_ee_list = []
-    maps_t = []
-    maps_q = []
-    maps_u = []
-
-    if load_maps:
-
-        print(f'Loading {nreal} maps for nside {nside} in full-sky')
-        maps_t = np.load(f"../output/maps_t_fullsky_nreal{nreal}_nside{nside}_z00.npy")
-        maps_q = np.load(f"../output/maps_q_fullsky_nreal{nreal}_nside{nside}_z00.npy")
-        maps_u = np.load(f"../output/maps_u_fullsky_nreal{nreal}_nside{nside}_z00.npy")
-
-    else:
-
-        print(f'Generating {nreal} maps for nside {nside} in full-sky')
-        for _ in tqdm(range(nreal)):
-
-            map_t, map_q, map_u = hp.synfast([cl_TT, cl_EE, cl_BB, cl_TE], nside)
-
-            maps_t.append(map_t)
-            maps_q.append(map_q)
-            maps_u.append(map_u)
-
-        maps_t = np.array(maps_t)
-        maps_q = np.array(maps_q)
-        maps_u = np.array(maps_u)
-
-        # np.save(f"../output/maps_t_nreal{nreal}_nside{nside}_z0000.npy", maps_t)
-        # np.save(f"../output/maps_q_nreal{nreal}_nside{nside}_z0000.npy", maps_q)
-        # np.save(f"../output/maps_u_nreal{nreal}_nside{nside}_z0000.npy", maps_u)
-        # print('Maps saved')
-
-    print(f'Applying mask to map and computing cls with {which_cls}...')
-    for i in tqdm(range(nreal)):
-
-        map_t = maps_t[i]
-        map_q = maps_q[i]
-        map_u = maps_u[i]
-
-        if which_cls == 'namaster':
-
-            map_T, map_Q, map_U = cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
-            f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
-
-            if coupled:
-                pseudo_cl_tt = nmt.compute_coupled_cell(f0, f0)[0]
-                pseudo_cl_te = nmt.compute_coupled_cell(f0, f2)[0]
-                pseudo_cl_ee = nmt.compute_coupled_cell(f2, f2)[0]
-            else:
-                pseudo_cl_tt = compute_master(f0, f0, w00)
-                pseudo_cl_te = compute_master(f0, f2, w02)
-                pseudo_cl_ee = compute_master(f2, f2, w22)
-
-        elif which_cls == 'healpy':
-
-            map_t = hp.remove_monopole(map_t)
-            map_q = hp.remove_monopole(map_q)
-            map_u = hp.remove_monopole(map_u)
-
-            pseudo_cl_hp_tot = hp.anafast([map_t * mask, map_q * mask, map_u * mask])
-            pseudo_cl_tt = pseudo_cl_hp_tot[0, :]
-            pseudo_cl_ee = pseudo_cl_hp_tot[1, :]
-            pseudo_cl_te = pseudo_cl_hp_tot[3, :]
-
-        else:
-            raise ValueError('which_cls must be namaster or healpy')
-
-        pseudo_cl_tt_list.append(pseudo_cl_tt)
-        pseudo_cl_te_list.append(pseudo_cl_te)
-        pseudo_cl_ee_list.append(pseudo_cl_ee)
-
-    sim_cls_dict = {
-        'pseudo_cl_tt': np.array(pseudo_cl_tt_list),
-        'pseudo_cl_te': np.array(pseudo_cl_te_list),
-        'pseudo_cl_ee': np.array(pseudo_cl_ee_list),
-    }
-    print('...done')
-
-    return sim_cls_dict
-
-
 def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, load_maps, coupled, which_cls, batch_size=10):
     if not coupled and which_cls == 'healpy' and int(survey_area_deg2) != 41252:
         raise ValueError('healpy can only compute coupled cls in the presence of a mask')
@@ -621,7 +526,6 @@ if part_sky:
     hp.mollview(map_u * mask, title=f'masked map U, zi={zi}', cmap='inferno_r')
 
     # ! COMPUTE AND COMPARE DIFFERENT VERSIONS OF THE Cls
-    
     # with healpy
     _map_t = hp.remove_monopole(map_t)
     _map_q = hp.remove_monopole(map_q)
@@ -641,7 +545,6 @@ if part_sky:
     bpw_pcl_GG_nmt = np.zeros((nbl_eff, zbins_use, zbins_use))
     bpw_pcl_GL_nmt = np.zeros((nbl_eff, zbins_use, zbins_use))
     bpw_pcl_LL_nmt = np.zeros((nbl_eff, zbins_use, zbins_use))
-
     for zi in range(zbins_use):
         for zj in range(zbins_use):
             cl_GG_master[:, zi, zj] = compute_master(f0[zi], f0[zj], w00)[0, :]
@@ -724,6 +627,7 @@ if part_sky:
     block = 'LLLL'
 
     if coupled:
+        raise ValueError, 'coupled case not fully implemented yet'
         print('Inputting pseudo-Cls/fsky to use INKA...')
         nbl_4covnmt = nbl_tot
         cl_GG_4covnmt = pcl_GG_nmt[:, zi, zj] / fsky
