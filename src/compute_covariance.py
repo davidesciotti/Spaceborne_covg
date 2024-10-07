@@ -564,7 +564,7 @@ if part_sky:
             bpw_pcl_LL_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_LL_nmt[:, zi, zj])
 
     # ! compare results
-    block = 'GLGL'
+    block = 'LLLL'
 
     if block == 'GGGG':
         hp_pcl = hp_pcl_GG
@@ -586,6 +586,8 @@ if part_sky:
         noise_idx = 1
         mm_ll = w22.get_coupling_matrix()
         pseudo_cl_dav = np.einsum('ij,jkl->ikl', mm_ll[:nbl_tot, :nbl_tot], cl_LL_unbinned)
+    # TODO add this
+    # elif block == 'GLGL':
 
     assert np.allclose(cl_th_bpw, cl_th_bpw_dav, atol=0, rtol=1e-4)
 
@@ -715,7 +717,7 @@ if part_sky:
         cov_sb_block = cov_3x2pt_GO_10D[probe_a_ix, probe_b_ix, probe_c_ix, probe_d_ix, :, :, zi, zj, zk, zl]
 
         if cov_sb_block.shape != (nbl_eff, nbl_eff):
-            print('Binning analytical Spaceborne covariance')
+            print(f'Binning analytical Spaceborne {block_name} covariance')
             binned_cov_sb_block = utils.bin_2d_matrix(cov=cov_sb_block, ells_in=ells_4covsb, ells_out=ells_eff,
                                                       ells_out_edges=ells_eff_edges, weights=None,
                                                       which_binning='mean')
@@ -725,7 +727,7 @@ if part_sky:
     # TODO add the remaining blocks? not really necessary if I symmetrize...
     for i, block_name in enumerate(cov_nmt_dict.keys()):
         if cov_nmt_dict[block_name].shape != (nbl_eff, nbl_eff):
-            print('Binning analytical NaMaster covariance')
+            print(f'Binning analytical NaMaster {block_name} covariance')
             cov_nmt_dict[block_name] = utils.bin_2d_matrix(cov=cov_nmt_dict[block_name], ells_in=ells_tot, ells_out=ells_eff,
                                                            ells_out_edges=ells_eff_edges, weights=None,
                                                            which_binning='mean')
