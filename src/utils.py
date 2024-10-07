@@ -269,7 +269,7 @@ def bin_2d_matrix(cov, ells_in, ells_out, ells_out_edges, which_binning, weights
     ells_edges_high = ells_out_edges[1:]
 
     # Loop over the output bins
-    for ell1_idx, _ in tqdm(enumerate(ells_out)):
+    for ell1_idx, _ in enumerate(ells_out):
         for ell2_idx, _ in enumerate(ells_out):
 
             # Get ell min/max for the current bins
