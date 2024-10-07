@@ -795,7 +795,7 @@ def correlation_from_covariance(covariance):
     return correlation
 
 
-def build_noise(zbins, n_probes, sigma_eps2, ng_shear, ng_clust, EP_or_ED, which_shape_noise):
+def build_noise(zbins, n_probes, sigma_eps2, ng_shear, ng_clust, EP_or_ED, which_shape_noise='per_component'):
     """Builds the noise power spectra.
 
     Parameters
