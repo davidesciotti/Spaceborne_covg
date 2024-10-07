@@ -16,6 +16,36 @@ DEG2_IN_SPHERE = 4 * np.pi * (180 / np.pi)**2
 from scipy.integrate import simpson
 
 
+
+def symmetrize_2d_array(array_2d):
+    """ mirror the lower/upper triangle """
+
+    # if already symmetric, do nothing
+    if check_symmetric(array_2d, exact=True):
+        return array_2d
+
+    # there is an implicit "else" here, since the function returns array_2d if the array is symmetric
+    assert array_2d.ndim == 2, 'array must be square'
+    size = array_2d.shape[0]
+
+    # check that either the upper or lower triangle (not including the diagonal) is null
+    triu_elements = array_2d[np.triu_indices(size, k=+1)]
+    tril_elements = array_2d[np.tril_indices(size, k=-1)]
+    assert np.all(triu_elements) == 0 or np.all(tril_elements) == 0, 'neither the upper nor the lower triangle ' \
+                                                                     '(excluding the diagonal) are null'
+
+    assert np.any(np.diag(array_2d)) != 0, 'the diagonal elements are all null. ' \
+                                           'This is not necessarily an error, but is suspect'
+
+    # symmetrize
+    array_2d = np.where(array_2d, array_2d, array_2d.T)
+    # check
+    if not check_symmetric(array_2d, exact=False):
+        warnings.warn('check failed: the array is not symmetric')
+
+    return array_2d
+
+
 def nmt_gaussian_cov_to_dict(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, coupled, cw, w00, w02, w22, nbl_4covnmt):
 
     # * NOTE: the order of the arguments (in particular for the cls) is the following
