@@ -1,8 +1,78 @@
 import warnings
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.integrate import simpson
 
 DEG2_IN_SPHERE = 4 * np.pi * (180 / np.pi)**2
+
+
+def get_ngal(ngal_in, EP_or_ED, zbins, EP_check_tol):
+
+    if isinstance(ngal_in, (int, float)):
+        assert EP_or_ED == 'EP', 'n_gal must be a scalar in the equipopulated (EP) case'
+        ngal_out = ngal_in
+
+    elif type(ngal_in) == list:
+        assert len(ngal_in) == zbins, 'n_gal must be a vector of length zbins'
+        ngal_out = ngal_in
+
+    elif type(ngal_in) == str:
+        nofz = np.genfromtxt(ngal_in)
+        assert nofz.shape[1] == zbins + 1, 'nz must be an array of shape (n_z_points, zbins + 1)'
+        z_nofz = nofz[:, 0]
+        nofz = nofz[:, 1:]
+        ngal_out = simpson(y=nofz, x=z_nofz, axis=0)
+
+    if EP_or_ED == 'EP' and not isinstance(ngal_out, (int, float)):
+        for zi in range(zbins):
+            assert np.allclose(ngal_out[0], ngal_out[zi], atol=0, rtol=EP_check_tol), \
+                'n_gal must be the same for all zbins in the equipopulated (EP) case'
+
+    return ngal_out
+
+
+def cl_2D_to_3D_symmetric(Cl_2D, nbl, zpairs, zbins):
+    """ reshape from (nbl, zpairs) to (nbl, zbins, zbins) according to
+    upper traigular ordering 0-th rows filled first, then second from i to 10...
+    """
+    assert Cl_2D.shape == (nbl, zpairs), f'cl_2d must have shape (nbl, zpairs) = ({nbl}, {zpairs})'
+
+    triu_idx = np.triu_indices(zbins)
+    Cl_3D = np.zeros((nbl, zbins, zbins))
+    for ell in range(nbl):
+        for zpair_idx in range(zpairs):
+            i, j = triu_idx[0][zpair_idx], triu_idx[1][zpair_idx]
+            Cl_3D[ell, i, j] = Cl_2D[ell, zpair_idx]
+    # fill lower diagonal (the matrix is symmetric!)
+    Cl_3D = fill_3D_symmetric_array(Cl_3D, nbl, zbins)
+    return Cl_3D
+
+
+def cl_2D_to_3D_asymmetric(Cl_2D, nbl, zbins, order):
+    """ reshape from (nbl, npairs) to (nbl, zbins, zbins), rows first
+    (valid for asymmetric Cij, i.e. C_XC)
+    """
+    assert order in ['row-major', 'col-major', 'C', 'F'], 'order must be either "row-major", "C" (equivalently), or' \
+                                                          '"col-major", "F" (equivalently)'
+    if order == 'row-major':
+        order = 'C'
+    elif order == 'col-major':
+        order = 'F'
+
+    Cl_3D = np.zeros((nbl, zbins, zbins))
+    Cl_3D = np.reshape(Cl_2D, Cl_3D.shape, order=order)
+    return Cl_3D
+
+
+def fill_3D_symmetric_array(array_3D, nbl, zbins):
+    """ mirror the lower/upper triangle """
+    assert array_3D.shape == (nbl, zbins, zbins), 'shape of input array must be (nbl, zbins, zbins)'
+
+    array_diag_3D = np.zeros((nbl, zbins, zbins))
+    for ell in range(nbl):
+        array_diag_3D[ell, :, :] = np.diag(np.diagonal(array_3D, 0, 1, 2)[ell, :])
+    array_3D = array_3D + np.transpose(array_3D, (0, 2, 1)) - array_diag_3D
+    return array_3D
 
 
 def generate_ind(triu_tril_square, row_col_major, size):

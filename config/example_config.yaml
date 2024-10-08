@@ -14,14 +14,20 @@ ell_bins: 20 # number of ell bins for the angular power spectra
 ell_path: null
 delta_ell_path: null
 
-n_gal_shear: 30  # number of sources per arcmin^2, relevant for weak lensing cosmic shear. 
-                 # This scalar must be provided for equipopulated ('EP') redshift bins
-n_gal_clustering: 30  # number of lenses per arcmin^2, relevant for photometric galaxy clustering. 
-                      # This scalar must be provided for equipopulated ('EP') redshift bins
-n_gal_path_shear: null  # path to .txt/.dat file with the number of sources per arcmin^2 *for each redshift bin*,
-                   # relevant for weak lensing cosmic shear. This must be provided for equidistant ('ED') redshift bins.
-n_gal_path_clustering: null  # path to .txt/.dat file with the number of lenses per arcmin^2 *for each redshift bin*,
-                        # relevant for photometric galaxy clustering. This must be provided for equidistant ('ED') redshift bins.
+# number of sources per arcmin^2, relevant for weak lensing cosmic shear.
+# This must one of either:
+# - a scalar, for equipopulated ('EP') redshift bins; in this case the exact same number of sources per arcmin^2 is assumed for each redshift bin
+# - a list of scalars, for equidistant ('ED') redshift bins. A list can also be passed in the EP case,
+# and a check on the consistency of the values will be performed (with tolerance EP_check_tol).
+# - a path to a .txt/.dat file with the number of sources per arcmin^2 for each redshift value. This must be of
+# shape (n_z_points, zbins + 1), where the first column is the redshift and the following columns are the number of
+# sources per arcmin^2 for each redshift bin. As in the case above, a consistency check will be performed in the EP case.
+n_gal_shear: 30
+# same as above but for the number of lenses per arcmin^2, relevant for photometric galaxy clustering.
+n_gal_clustering: 30
+# tolerance for the check on the consistency of the number of sources per arcmin^2 for
+# equipopulated ('EP') redshift bins. 0.05 is 5%
+EP_check_tol: 0.05
 
 # intrinsic ellipticity dispersion *per component*. The total dispersion is sigma_eps = sigma_eps_i * sqrt(2)
 sigma_eps_i: 0.26
@@ -33,8 +39,8 @@ which_shape_noise: per_component
 survey_area: 14_700 # sky coverage, in in deg^2
 
 # datavector and covariance ordering options
-triu_tril: "triu" # or 'tril'. Which elements of the (symmetric) auto-spectra are kept
-row_col_major: "row-major" # whether the flattening of the spectra is in row-major or column-major order
+triu_tril: "triu" # or 'triu' or 'tril'. Which elements of the (symmetric) auto-spectra are kept
+row_col_major: "row-major" # 'row-major' or 'column-major' whether the flattening of the spectra is in row-major or column-major order
 covariance_ordering_2D: "probe_ell_zpair" # must be one of ['probe_ell_zpair', 'probe_zpair_ell', 'ell_probe_zpair', 'zpair_probe_ell']
 # the naming convention is to have the outermost loop on the left, and the innermost loop on the right; so, e.g.,
 # probe_ell_zpair means that the outermost loop is on the probes, the middle loop is on ell and the innermost loop is on zpair

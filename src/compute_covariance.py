@@ -45,19 +45,13 @@ assert triu_tril in ('triu', 'tril'), 'triu_tril must be either "triu" or "tril"
 assert row_col_major in ('row-major', 'col-major'), 'row_col_major must be either "row-major" or "col-major"'
 assert isinstance(zbins, int), 'zbins must be an integer'
 assert isinstance(nbl, int), 'nbl must be an integer'
+assert isinstance(cfg['n_gal_shear'], (int, float, list, str)), 'n_gal_shear must be an integer, float, list or string'
+assert isinstance(cfg['n_gal_clustering'], (int, float, list, str)
+                  ), 'n_gal_clust must be an integer, float, list or string'
 
-if EP_or_ED == 'EP':
-    n_gal_shear = cfg['n_gal_shear']
-    n_gal_clustering = cfg['n_gal_clustering']
-    assert np.isscalar(n_gal_shear), 'n_gal_shear must be a scalar'
-    assert np.isscalar(n_gal_clustering), 'n_gal_clustering must be a scalar'
-elif EP_or_ED == 'ED':
-    n_gal_shear = np.genfromtxt(cfg['n_gal_path_shear'])
-    n_gal_clustering = np.genfromtxt(cfg['n_gal_path_clustering'])
-    assert len(n_gal_shear) == zbins, 'n_gal_shear must be a vector of length zbins'
-    assert len(n_gal_clustering) == zbins, 'n_gal_clustering must be a vector of length zbins'
-else:
-    raise ValueError('EP_or_ED must be either EP or ED')
+# get and check the number of galaxies in each redshift bin
+n_gal_shear = utils.get_ngal(cfg['n_gal_shear'], EP_or_ED, zbins, cfg['EP_check_tol'])
+n_gal_clustering = utils.get_ngal(cfg['n_gal_clustering'], EP_or_ED, zbins, cfg['EP_check_tol'])
 
 # covariance and datavector ordering
 probe_ordering = [['L', 'L'], [GL_or_LG[0], GL_or_LG[1]], ['G', 'G']]
@@ -79,10 +73,16 @@ if cfg['ell_path'] is None and cfg['delta_ell_path'] is None:
     ell_bin_upper_edges = ell_bin_edges[1:]
 
     # save to file for good measure
-    ell_grid_header = f'ell_min = {ell_min}\tell_max = {ell_max}\tell_bins = {nbl}\n' \
-                      f'ell_bin_lower_edge\tell_bin_upper_edge\tell_bin_center\tdelta_ell'
+    fmt = '%12.4f'
+    header_lines = [
+        f'ell_min = {ell_min}',
+        f'ell_max = {ell_max}',
+        f'ell_bins = {nbl}',
+        'ell_bin_lower_edge    ell_bin_upper_edge    ell_bin_center    delta_ell'
+    ]
+    ell_grid_header = '\n'.join(header_lines)
     ell_grid = np.column_stack((ell_bin_lower_edges, ell_bin_upper_edges, ell_values, delta_values))
-    np.savetxt(f'{output_folder}/ell_grid.txt', ell_grid, header=ell_grid_header)
+    np.savetxt(f'{output_folder}/ell_grid.txt', ell_grid,  fmt=fmt, header=ell_grid_header, comments='# ')
 
 else:
     print('Loading \ell and \Delta \ell values from file')
@@ -111,7 +111,7 @@ cl_3x2pt_5D[0, 1, :, :, :] = np.transpose(cl_GL_3D, (0, 2, 1))
 # ! Compute covariance
 # create a noise with dummy axis for ell, to have the same shape as cl_3x2pt_5D
 noise_3x2pt_4D = utils.build_noise(zbins, n_probes, sigma_eps2=sigma_eps2,
-                                   ng_shear=n_gal_shear, 
+                                   ng_shear=n_gal_shear,
                                    ng_clust=n_gal_clustering,
                                    EP_or_ED=EP_or_ED,
                                    which_shape_noise=cfg['which_shape_noise'])
@@ -171,16 +171,16 @@ if cfg['plot_covariance_2D']:
     plt.title(f'log10(cov_3x2pt_2D)\nordering: {covariance_ordering_2D}')
 
 other_quantities_tosave = {
-    'n_gal_shear [arcmin^{-2}]': n_gal_shear,
-    'n_gal_clustering [arcmin^{-2}]': n_gal_clustering,
+    'n_gal_shear [arcmin^{-2}]': list(n_gal_shear),
+    'n_gal_clustering [arcmin^{-2}]': list(n_gal_clustering),
     'survey_area [deg^2]': survey_area,
     'sigma_eps': sigma_eps,
 }
 
-np.save(f'{output_folder}/cov_Gauss_3x2pt_2D_{covariance_ordering_2D}.npy', cov_3x2pt_2D)
+np.save(f'{output_folder}/cov_Gauss_3x2pt_2D_{covariance_ordering_2D}_{survey_area:d}deg2.npy', cov_3x2pt_2D)
 
 with open(f'{output_folder}/other_specs.txt', 'w') as file:
-    file.write(json.dumps(other_quantities_tosave))
+    file.write(json.dumps(other_quantities_tosave, indent=4))
 
 print(f'Done')
 print(f'Covariance files saved in {output_folder}')

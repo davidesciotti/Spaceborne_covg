@@ -153,3 +153,4 @@ cython_debug/
 #.idea/
 *.xml
 *.iml
+input/data_DR1/*
