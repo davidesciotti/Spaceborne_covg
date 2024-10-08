@@ -14,7 +14,7 @@ cfg = yaml.load(sys.stdin, Loader=yaml.FullLoader)
 
 # if you want to execute without passing the path
 # with open('../config/example_config.yaml', 'r') as file:
-    # cfg = yaml.safe_load(file)
+#     cfg = yaml.safe_load(file)
 
 survey_area = cfg['survey_area']  # deg^2
 deg2_in_sphere = utils.DEG2_IN_SPHERE
@@ -82,7 +82,7 @@ if cfg['ell_path'] is None and cfg['delta_ell_path'] is None:
     ]
     ell_grid_header = '\n'.join(header_lines)
     ell_grid = np.column_stack((ell_bin_lower_edges, ell_bin_upper_edges, ell_values, delta_values))
-    np.savetxt(f'{output_folder}/ell_grid.txt', ell_grid,  fmt=fmt, header=ell_grid_header, comments='# ')
+    np.savetxt(f'{output_folder}/ell_grid.txt', ell_grid, fmt=fmt, header=ell_grid_header, comments='# ')
 
 else:
     print('Loading \ell and \Delta \ell values from file')
@@ -170,9 +170,11 @@ if cfg['plot_covariance_2D']:
     plt.colorbar()
     plt.title(f'log10(cov_3x2pt_2D)\nordering: {covariance_ordering_2D}')
 
+n_gal_shear_save = list(n_gal_shear) if isinstance(n_gal_shear, np.ndarray) else n_gal_shear
+n_gal_clustering_save = list(n_gal_clustering) if isinstance(n_gal_clustering, np.ndarray) else n_gal_clustering
 other_quantities_tosave = {
-    'n_gal_shear [arcmin^{-2}]': list(n_gal_shear),
-    'n_gal_clustering [arcmin^{-2}]': list(n_gal_clustering),
+    'n_gal_shear [arcmin^{-2}]': n_gal_shear_save,
+    'n_gal_clustering [arcmin^{-2}]': n_gal_clustering_save,
     'survey_area [deg^2]': survey_area,
     'sigma_eps': sigma_eps,
 }
@@ -184,4 +186,3 @@ with open(f'{output_folder}/other_specs.txt', 'w') as file:
 
 print(f'Done')
 print(f'Covariance files saved in {output_folder}')
-
