@@ -5,16 +5,17 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
+import scipy
 
 import utils
 
 # ! settings
 # import the yaml config file
-cfg = yaml.load(sys.stdin, Loader=yaml.FullLoader)
+# cfg = yaml.load(sys.stdin, Loader=yaml.FullLoader)
 
 # if you want to execute without passing the path
-# with open('../config/example_config.yaml', 'r') as file:
-    # cfg = yaml.safe_load(file)
+with open('../config/example_config.yaml', 'r') as file:
+    cfg = yaml.safe_load(file)
 
 survey_area = cfg['survey_area']  # deg^2
 deg2_in_sphere = utils.DEG2_IN_SPHERE
@@ -45,19 +46,13 @@ assert triu_tril in ('triu', 'tril'), 'triu_tril must be either "triu" or "tril"
 assert row_col_major in ('row-major', 'col-major'), 'row_col_major must be either "row-major" or "col-major"'
 assert isinstance(zbins, int), 'zbins must be an integer'
 assert isinstance(nbl, int), 'nbl must be an integer'
+assert isinstance(cfg['n_gal_shear'], (int, float, list, str)), 'n_gal_shear must be an integer, float, list or string'
+assert isinstance(cfg['n_gal_clustering'], (int, float, list, str)
+                  ), 'n_gal_clust must be an integer, float, list or string'
 
-if EP_or_ED == 'EP':
-    n_gal_shear = cfg['n_gal_shear']
-    n_gal_clustering = cfg['n_gal_clustering']
-    assert np.isscalar(n_gal_shear), 'n_gal_shear must be a scalar'
-    assert np.isscalar(n_gal_clustering), 'n_gal_clustering must be a scalar'
-elif EP_or_ED == 'ED':
-    n_gal_shear = np.genfromtxt(cfg['n_gal_path_shear'])
-    n_gal_clustering = np.genfromtxt(cfg['n_gal_path_clustering'])
-    assert len(n_gal_shear) == zbins, 'n_gal_shear must be a vector of length zbins'
-    assert len(n_gal_clustering) == zbins, 'n_gal_clustering must be a vector of length zbins'
-else:
-    raise ValueError('EP_or_ED must be either EP or ED')
+# get and check the number of galaxies in each redshift bin
+n_gal_shear = utils.get_ngal(cfg['n_gal_shear'], EP_or_ED, zbins, cfg['EP_check_tol'])
+n_gal_clustering = utils.get_ngal(cfg['n_gal_clustering'], EP_or_ED, zbins, cfg['EP_check_tol'])
 
 # covariance and datavector ordering
 probe_ordering = [['L', 'L'], [GL_or_LG[0], GL_or_LG[1]], ['G', 'G']]
@@ -79,11 +74,17 @@ if cfg['ell_path'] is None and cfg['delta_ell_path'] is None:
     ell_bin_upper_edges = ell_bin_edges[1:]
 
     # save to file for good measure
-    ell_grid_header = f'ell_min = {ell_min}\tell_max = {ell_max}\tell_bins = {nbl}\n' \
-                      f'ell_bin_lower_edge\tell_bin_upper_edge\tell_bin_center\tdelta_ell'
+    fmt = '%12.4f'
+    header_lines = [
+        f'ell_min = {ell_min}',
+        f'ell_max = {ell_max}',
+        f'ell_bins = {nbl}',
+        'ell_bin_lower_edge    ell_bin_upper_edge    ell_bin_center    delta_ell'
+    ]
+    ell_grid_header = '\n'.join(header_lines)
     ell_grid = np.column_stack((ell_bin_lower_edges, ell_bin_upper_edges, ell_values, delta_values))
-    np.savetxt(f'{output_folder}/ell_grid.txt', ell_grid, header=ell_grid_header)
-
+    np.savetxt(f'{output_folder}/ell_grid.txt', ell_grid,  fmt=fmt, header=ell_grid_header, comments='# ')
+    
 else:
     print('Loading \ell and \Delta \ell values from file')
 
@@ -98,9 +99,26 @@ else:
     assert delta_values.ndim == 1, 'delta ell values must be a 1D array'
 
 # ! import cls
-cl_LL_3D = np.load(f'{cfg["cl_LL_3D_path"]}')
-cl_GL_3D = np.load(f'{cfg["cl_GL_3D_path"]}')
-cl_GG_3D = np.load(f'{cfg["cl_GG_3D_path"]}')
+cl_LL_2D = np.genfromtxt(
+    '/home/davide/Documenti/Lavoro/Programmi/Spaceborne_covg/input/data_DR1/Cls_zNLA_ShearShear_DR1_CLOE.dat')
+cl_GL_2D = np.genfromtxt(
+    '/home/davide/Documenti/Lavoro/Programmi/Spaceborne_covg/input/data_DR1/Cls_zNLA_PosShear_DR1_CLOE.dat')
+cl_GG_2D = np.genfromtxt(
+    '/home/davide/Documenti/Lavoro/Programmi/Spaceborne_covg/input/data_DR1/Cls_zNLA_PosPos_DR1_CLOE.dat')
+assert np.allclose(cl_LL_2D[:, 0], ell_values, atol=0, rtol=1e-5)
+assert np.allclose(cl_GL_2D[:, 0], ell_values, atol=0, rtol=1e-5)
+assert np.allclose(cl_GG_2D[:, 0], ell_values, atol=0, rtol=1e-5)
+cl_LL_2D = cl_LL_2D[:, 1:]
+cl_GL_2D = cl_GL_2D[:, 1:]
+cl_GG_2D = cl_GG_2D[:, 1:]
+
+cl_LL_3D = utils.cl_2D_to_3D_symmetric(cl_LL_2D, nbl, zpairs_auto, zbins)
+cl_GL_3D = utils.cl_2D_to_3D_asymmetric(cl_GL_2D, nbl, zbins, order='C')
+cl_GG_3D = utils.cl_2D_to_3D_symmetric(cl_GG_2D, nbl, zpairs_auto, zbins)
+# cl_LL_3D = np.load(f'{cfg["cl_LL_3D_path"]}')
+# cl_GL_3D = np.load(f'{cfg["cl_GL_3D_path"]}')
+# cl_GG_3D = np.load(f'{cfg["cl_GG_3D_path"]}')
+
 
 cl_3x2pt_5D = np.zeros((n_probes, n_probes, nbl, zbins, zbins))
 cl_3x2pt_5D[0, 0, :, :, :] = cl_LL_3D
@@ -111,7 +129,7 @@ cl_3x2pt_5D[0, 1, :, :, :] = np.transpose(cl_GL_3D, (0, 2, 1))
 # ! Compute covariance
 # create a noise with dummy axis for ell, to have the same shape as cl_3x2pt_5D
 noise_3x2pt_4D = utils.build_noise(zbins, n_probes, sigma_eps2=sigma_eps2,
-                                   ng_shear=n_gal_shear, 
+                                   ng_shear=n_gal_shear,
                                    ng_clust=n_gal_clustering,
                                    EP_or_ED=EP_or_ED,
                                    which_shape_noise=cfg['which_shape_noise'])
@@ -171,17 +189,28 @@ if cfg['plot_covariance_2D']:
     plt.title(f'log10(cov_3x2pt_2D)\nordering: {covariance_ordering_2D}')
 
 other_quantities_tosave = {
-    'n_gal_shear [arcmin^{-2}]': n_gal_shear,
-    'n_gal_clustering [arcmin^{-2}]': n_gal_clustering,
+    'n_gal_shear [arcmin^{-2}]': list(n_gal_shear),
+    'n_gal_clustering [arcmin^{-2}]': list(n_gal_clustering),
     'survey_area [deg^2]': survey_area,
     'sigma_eps': sigma_eps,
 }
 
-np.save(f'{output_folder}/cov_Gauss_3x2pt_2D_{covariance_ordering_2D}.npy', cov_3x2pt_2D)
+np.save(f'{output_folder}/cov_Gauss_3x2pt_2D_{covariance_ordering_2D}_{survey_area:d}deg2.npy', cov_3x2pt_2D)
 
 with open(f'{output_folder}/other_specs.txt', 'w') as file:
-    file.write(json.dumps(other_quantities_tosave))
+    file.write(json.dumps(other_quantities_tosave, indent=4))
 
 print(f'Done')
 print(f'Covariance files saved in {output_folder}')
 
+
+cov_bench = np.load(
+    '/home/davide/Documenti/Lavoro/Programmi/Spaceborne_covg/input/data_DR1/cov_Gauss_3x2pt_CLOEDR1_2500sqdeg.npy')
+diff = (cov_bench / cov_3x2pt_2D - 1) * 100
+
+plt.figure()
+plt.plot(np.diag(diff))
+
+plt.figure()
+plt.matshow(np.log10(np.abs(diff)))
+plt.colorbar()
