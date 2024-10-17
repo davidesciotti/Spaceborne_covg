@@ -2,7 +2,7 @@
 # Author: Davide Sciotti
 
 zbins: 10 # number of redshift bins
-zbins_use: 3
+zbins_use: 4
 EP_or_ED: "EP" # or 'ED'. Equipopulated or equidistant redshift bins
 
 ell_min: 12 # minimum ell for the angular power spectra
@@ -43,7 +43,7 @@ nside: 512
 apodize_mask: True
 aposize: 0.1 # apodization scale in deg
 ells_per_band: 50 # number of multipole values per bandpower
-nreal: 30
+nreal: 20
 load_simulated_cls: False  # whether to load simulated cls from file
 coupled: False  # compute the covariance of the coupled or uncoupled cls
 which_ell_weights: get_weight_list()  # get_weight_list() or get_bandpower_windows()

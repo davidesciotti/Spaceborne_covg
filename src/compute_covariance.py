@@ -559,8 +559,36 @@ if part_sky:
     hp_pcl_GL = hp_pcl_tot[3, :]
 
     # ! updated way, taking into account cross-bins
+
+    cl_ring_big_list = []
+    for zi in range(zbins_use):
+        cl_ring_big_list.extend([cl_GG_unbinned[zi, zi],
+                                cl_LL_unbinned[zi, zi],
+                                cl_BB_unbinned[zi, zi],
+                                cl_GL_unbinned[zi, zi],
+                                0 * cl_GL_unbinned[zi, zi],
+                                0 * cl_GL_unbinned[zi, zi]
+                                ])
+
+    for offset in range(1, zbins_use):
+        for zi in range(zbins_use - offset):
+            zj = zi + offset
+            cl_ring_big_list.extend([cl_GG_unbinned[zi, zj],
+                                    cl_LL_unbinned[zi, zj],
+                                    cl_BB_unbinned[zi, zj],
+                                    cl_GL_unbinned[zi, zj],
+                                    0 * cl_GL_unbinned[zi, zj],
+                                    0 * cl_GL_unbinned[zi, zj]
+                                    ])
+
+    # if input has len n(n+1)/2, output has len n
+    # if input has len 4, output has len 3
     corr_alms_gg = hp.synalm(build_cl_ring_ordering(cl_GG_unbinned), lmax=3 * nside - 1, new=True)
+    corr_alms_ll = hp.synalm(build_cl_ring_ordering(cl_LL_unbinned), lmax=3 * nside - 1, new=True)
+
     corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms_gg]
+    corr_maps_t, corr_maps_q, corr_maps_u = [hp.alm2map_spin(alm, nside, 2, 3 * nside - 1) for alm in corr_alms_ll]
+    assert False, 'stop here to check crash'
 
     # hp_pcl_tot = hp.anafast([mask * corr_maps_gg[0], mask * corr_maps_gg[1], mask * corr_maps_gg[2]])
     hp_pcl_GG = np.zeros((nbl_tot, zbins_use, zbins_use))
@@ -646,7 +674,7 @@ if part_sky:
     plt.xscale('log')
     plt.tight_layout()
 
-    assert False, 'stop here to check cross-bins'
+    assert False, 'stop here'
 
     # ! Let's now compute the Gaussian estimate of the covariance!
     start_time = time.perf_counter()
@@ -656,16 +684,16 @@ if part_sky:
     # This is the time-consuming operation
     # Note that you only need to do this once, regardless of spin
     print("Computing cov workspace coupling coefficients...")
-    cw.compute_coupling_coefficients(f0[0], f0[0], f0[0], f0[0])
-    # cw.compute_coupling_coefficients(f0_mask, f0_mask, f0_mask, f0_mask)
+    # cw.compute_coupling_coefficients(f0[0], f0[0], f0[0], f0[0])
+    cw.compute_coupling_coefficients(f0_mask, f0_mask, f0_mask, f0_mask)
     print(f"Coupling coefficients computed in {(time.perf_counter() - start_time):.2f} s...")
 
     # TODO generalize to all zbin cross-correlations; z=0 for the moment
     # shape: (n_cls, n_bpws, n_cls, lmax+1)
     # n_cls is the number of power spectra (1, 2 or 4 for spin 0-0, spin 0-2 and spin 2-2 correlations)
 
-    zi, zj, zk, zl = 0, 0, 0, 0
-    block = 'GLGL'
+    zi, zj, zk, zl = 0, 1, 0, 1
+    block = 'GGGG'
 
     # if coupled:
     #     raise ValueError('coupled case not fully implemented yet')
@@ -747,8 +775,8 @@ if part_sky:
     # ! bin analytical covariances
     for i, block_name in enumerate(cov_blocks_tot_names):
         probe_a_ix, probe_b_ix, probe_c_ix, probe_d_ix = \
-            probename_dict[block_name[0]], probename_dict[block_name[1]
-                                                          ], probename_dict[block_name[2]], probename_dict[block_name[3]]
+            probename_dict[block_name[0]], probename_dict[block_name[1]], \
+            probename_dict[block_name[2]], probename_dict[block_name[3]]
         cov_sb_block = cov_3x2pt_GO_10D[probe_a_ix, probe_b_ix, probe_c_ix, probe_d_ix, :, :, zi, zj, zk, zl]
 
         if cov_sb_block.shape != (nbl_eff, nbl_eff):
@@ -785,15 +813,9 @@ if part_sky:
     cov_sb_tot = np.vstack((row_1, row_2, row_3))
 
     zeros_block = np.zeros((nbl_eff, nbl_eff))
-    row_1 = np.hstack((cov_nmt_dict['LLLL'],
-                       zeros_block,
-                       zeros_block))
-    row_2 = np.hstack((cov_nmt_dict['GLLL'],
-                       cov_nmt_dict['GLGL'],
-                       zeros_block))
-    row_3 = np.hstack((cov_nmt_dict['GGLL'],
-                       cov_nmt_dict['GGGL'],
-                       cov_nmt_dict['GGGG']))
+    row_1 = np.hstack((cov_nmt_dict['LLLL'], zeros_block, zeros_block))
+    row_2 = np.hstack((cov_nmt_dict['GLLL'], cov_nmt_dict['GLGL'], zeros_block))
+    row_3 = np.hstack((cov_nmt_dict['GGLL'], cov_nmt_dict['GGGL'], cov_nmt_dict['GGGG']))
     cov_nmt_tot = np.vstack((row_1, row_2, row_3))
     cov_nmt_tot = utils.symmetrize_2d_array(cov_nmt_tot)
 
@@ -820,10 +842,10 @@ if part_sky:
     # ! SAMPLE COVARIANCE - DAVIDE
     if not cfg['load_simulated_cls']:
         print('Producing gaussian simulations...')
-        simulated_cls_dict = produce_gaussian_sims(cl_GG_unbinned[:, zi, zi],
-                                                   cl_LL_unbinned[:, zi, zi],
-                                                   cl_BB_unbinned[:, zi, zi],
-                                                   cl_GL_unbinned[:, zi, zi],
+        simulated_cls_dict = produce_gaussian_sims(cl_GG_unbinned[:, zi, zj],
+                                                   cl_LL_unbinned[:, zi, zj],
+                                                   cl_BB_unbinned[:, zi, zj],
+                                                   cl_GL_unbinned[:, zi, zj],
                                                    nside=nside, nreal=nreal,
                                                    mask=mask,
                                                    coupled=coupled,
