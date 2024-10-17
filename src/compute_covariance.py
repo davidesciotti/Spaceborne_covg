@@ -15,6 +15,25 @@ import os
 ROOT = os.getenv("ROOT")
 
 
+def build_cl_ring_ordering(cl_3d):
+
+    zbins = cl_3d.shape[1]
+    assert cl_3d.shape[1] == cl_3d.shape[2], 'input cls should have shape (ell_bins, zbins, zbins)'
+    cl_ring_list = []
+
+    # Step 1: Main diagonal (auto-spectra)
+    for zi in range(zbins):
+        cl_ring_list.append(cl_3d[:, zi, zi])
+
+    # Step 2: Off-diagonal terms (cross-spectra), starting from the first off-diagonal, and proceeding upward
+    for offset in range(1, zbins):  # offset defines the distance from the main diagonal
+        for zi in range(zbins - offset):
+            zj = zi + offset
+            cl_ring_list.append(cl_3d[:, zi, zj])
+
+    return cl_ring_list
+
+
 def get_sample_field_bu(cl_TT, cl_EE, cl_BB, cl_TE, nside):
     """This routine generates a spin-0 and a spin-2 Gaussian random field based
     on these power spectra.
@@ -539,6 +558,20 @@ if part_sky:
     hp_pcl_LL = hp_pcl_tot[1, :]
     hp_pcl_GL = hp_pcl_tot[3, :]
 
+    # ! updated way, taking into account cross-bins
+    corr_alms_gg = hp.synalm(build_cl_ring_ordering(cl_GG_unbinned), lmax=3 * nside - 1, new=True)
+    corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms_gg]
+
+    # hp_pcl_tot = hp.anafast([mask * corr_maps_gg[0], mask * corr_maps_gg[1], mask * corr_maps_gg[2]])
+    hp_pcl_GG = np.zeros((nbl_tot, zbins_use, zbins_use))
+    for zi in range(zbins_use):
+        for zj in range(zbins_use):
+            _corr_maps_gg_zi = hp.remove_monopole(corr_maps_gg[zi])
+            _corr_maps_gg_zj = hp.remove_monopole(corr_maps_gg[zj])
+            hp_pcl_GG[:, zi, zj] = hp.anafast(mask * _corr_maps_gg_zi, mask * _corr_maps_gg_zj)
+
+    f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True) for map_T in corr_maps_gg])
+
     # TODO add noise?
     cl_GG_master = np.zeros((nbl_eff, zbins_use, zbins_use))
     cl_GL_master = np.zeros((nbl_eff, zbins_use, zbins_use))
@@ -564,7 +597,7 @@ if part_sky:
             bpw_pcl_LL_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_LL_nmt[:, zi, zj])
 
     # ! compare results
-    block = 'LLLL'
+    block = 'GGGG'
 
     if block == 'GGGG':
         hp_pcl = hp_pcl_GG
@@ -591,27 +624,29 @@ if part_sky:
 
     assert np.allclose(cl_th_bpw, cl_th_bpw_dav, atol=0, rtol=1e-4)
 
+    zi, zj = 1, 2
     plt.figure()
     clr = cm.rainbow(np.linspace(0, 1, zbins_use))
-    for zi in range(1):
 
-        plt.plot(ells_tot, hp_pcl, label=f'hp pseudo-cl', alpha=.7)
-        plt.plot(ells_tot, nmt_pcl[:, zi, zi], label=f'nmt pseudo-cl', alpha=.7)
-        plt.plot(ells_eff, master_cl[:, zi, zi], label=f'MASTER-cl', alpha=.7, marker='.')
-        plt.plot(ells_tot, pseudo_cl_dav[:, zi, zi], label=f'dav pseudo-cl', alpha=.7)
+    plt.plot(ells_tot, hp_pcl[:, zi, zj], label=f'hp pseudo-cl', alpha=.7)
+    plt.plot(ells_tot, nmt_pcl[:, zi, zj], label=f'nmt pseudo-cl', alpha=.7, ls='--')
+    plt.plot(ells_eff, master_cl[:, zi, zj], label=f'MASTER-cl', alpha=.7, marker='.')
+    plt.plot(ells_tot, pseudo_cl_dav[:, zi, zj], label=f'dav pseudo-cl', alpha=.7)
 
-        plt.scatter(ells_eff, cl_th_bpw[:, zi, zi] * fsky, marker='.', label=f'bpw th cls*fsky')
-        plt.plot(ells_tot, cl_th_unbinned[:, zi, zi], label=f'unbinned th cls')
-        plt.plot(ells_tot, cl_th_unbinned[:, zi, zi] * fsky, label=f'unbinned th cls*fsky')
+    plt.scatter(ells_eff, cl_th_bpw[:, zi, zj] * fsky, marker='.', label=f'bpw th cls*fsky')
+    plt.plot(ells_tot, cl_th_unbinned[:, zi, zj], label=f'unbinned th cls')
+    plt.plot(ells_tot, cl_th_unbinned[:, zi, zj] * fsky, label=f'unbinned th cls*fsky')
 
     plt.xlabel(r'$\ell$')
     plt.axvline(lmax_healpy_safe, color='k', ls='--', label='1.5 * nside', alpha=.7)
     plt.yscale('log')
     plt.legend()
     plt.ylabel(r'$C_\ell$')
-    plt.title(f'{block}, nside={nside}, fsky={fsky:.2f}, zi={zi}')
+    plt.title(f'{block}, nside={nside}, fsky={fsky:.2f}, zi={zi}, zj={zj}')
     plt.xscale('log')
     plt.tight_layout()
+
+    assert False, 'stop here to check cross-bins'
 
     # ! Let's now compute the Gaussian estimate of the covariance!
     start_time = time.perf_counter()
