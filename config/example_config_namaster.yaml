@@ -2,12 +2,12 @@
 # Author: Davide Sciotti
 
 zbins: 10 # number of redshift bins
-zbins_use: 4
+zbins_use: 6
 EP_or_ED: "EP" # or 'ED'. Equipopulated or equidistant redshift bins
 
-ell_min: 12 # minimum ell for the angular power spectra
-ell_max: 62 # maximum ell for the angular power spectra
-ell_bins: 11 # number of ell bins for the angular power spectra
+ell_min: 10 # minimum ell for the angular power spectra
+ell_max: 5000 # maximum ell for the angular power spectra
+ell_bins: 32 # number of ell bins for the angular power spectra
 
 # alternatively, one can specify the ell grid directly (set to "null" if you prefer to use ell_min, ell_max, ell_bins)
 # ell_path: '../input/ell_values.txt'  # path to txt file with the ell grid
