@@ -1,4 +1,5 @@
 import gc
+import itertools
 import json
 import sys
 import time
@@ -21,17 +22,67 @@ def build_cl_ring_ordering(cl_3d):
     assert cl_3d.shape[1] == cl_3d.shape[2], 'input cls should have shape (ell_bins, zbins, zbins)'
     cl_ring_list = []
 
-    # Step 1: Main diagonal (auto-spectra)
-    for zi in range(zbins):
-        cl_ring_list.append(cl_3d[:, zi, zi])
-
-    # Step 2: Off-diagonal terms (cross-spectra), starting from the first off-diagonal, and proceeding upward
-    for offset in range(1, zbins):  # offset defines the distance from the main diagonal
+    for offset in range(0, zbins):  # offset defines the distance from the main diagonal
         for zi in range(zbins - offset):
             zj = zi + offset
             cl_ring_list.append(cl_3d[:, zi, zj])
 
     return cl_ring_list
+
+
+def build_cl_tomo_TEB_ring_ord(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zbins, spectra_types=['T', 'E', 'B']):
+
+    assert cl_TT.shape == cl_EE.shape == cl_BB.shape == cl_TE.shape == cl_EB.shape == cl_TB.shape, \
+        'All input arrays must have the same shape.'
+    assert cl_TT.ndim == 3, 'the ell axis should be present for all input arrays'
+
+
+    # Iterate over redshift bins and spectra types to construct the matrix of combinations
+    row_idx = 0
+    matrix = []
+    for zi in range(0, zbins):
+        for s1 in spectra_types:
+            row = []
+            for zj in range(0, zbins):
+                for s2 in spectra_types:
+                    row.append(f'{s1}-{zi}-{s2}-{zj}')
+            matrix.append(row)
+            row_idx += 1
+
+    assert len(row) == zbins * len(spectra_types), \
+        "The number of elements in the row should be equal to the number of redshift bins times the number of spectra types."
+
+    cl_ring_ord_list = []
+    for offset in range(len(row)):
+        for zi in range(len(row) - offset):
+            zj = zi + offset
+
+            probe_a, zi, probe_b, zj = matrix[zi][zj].split('-')
+
+            if probe_a == 'T' and probe_b == 'T':
+                cl = cl_TT
+            elif probe_a == 'E' and probe_b == 'E':
+                cl = cl_EE
+            elif probe_a == 'B' and probe_b == 'B':
+                cl = cl_BB
+            elif probe_a == 'T' and probe_b == 'E':
+                cl = cl_TE
+            elif probe_a == 'E' and probe_b == 'B':
+                cl = cl_EB
+            elif probe_a == 'T' and probe_b == 'B':
+                cl = cl_TB
+            elif probe_a == 'B' and probe_b == 'T':
+                cl = cl_TB.transpose(0, 2, 1)
+            elif probe_a == 'B' and probe_b == 'E':
+                cl = cl_EB.transpose(0, 2, 1)
+            elif probe_a == 'E' and probe_b == 'T':
+                cl = cl_TE.transpose(0, 2, 1)
+            else:
+                raise ValueError(f'Invalid combination: {probe_a}-{probe_b}')
+
+            cl_ring_ord_list.append(cl[:, int(zi), int(zj)])
+
+    return cl_ring_ord_list
 
 
 def get_sample_field_bu(cl_TT, cl_EE, cl_BB, cl_TE, nside):
@@ -411,6 +462,9 @@ if part_sky:
     # ell_values, delta_values, ell_bin_edges = utils.compute_ells(nbl, 0, lmax, recipe='ISTF', output_ell_bin_edges=True)
     # bin_obj = nmt.NmtBin.from_edges(ell_bin_edges[:-1].astype(int), ell_bin_edges[1:].astype(int), is_Dell=False, f_ell=None)
     bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band, is_Dell=False)
+    # bin_obj = nmt.NmtBin.from_edges(
+    # ell_bin_lower_edges.astype(int),
+    # ell_bin_upper_edges.astype(int), is_Dell=False, f_ell=None)
     # bin_obj = nmt.NmtBin.from_lmax_linear(lmax=lmax, nlb=ells_per_band, is_Dell=False, f_ell=None) # TODO test this
 
     ells_eff = bin_obj.get_effective_ells()  # get effective ells per bandpower
@@ -501,7 +555,8 @@ if part_sky:
     cl_GL_unbinned = cl_GL_unbinned[:lmax, :zbins_use, :zbins_use]
     cl_LL_unbinned = cl_LL_unbinned[:lmax, :zbins_use, :zbins_use]
     cl_BB_unbinned = np.zeros_like(cl_LL_unbinned)
-    cl_EB_unbinned = np.zeros_like(cl_LL_unbinned)
+    cl_GB_unbinned = np.zeros_like(cl_LL_unbinned)
+    cl_LB_unbinned = np.zeros_like(cl_LL_unbinned)
 
     cl_GG_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
     cl_GL_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
@@ -560,45 +615,36 @@ if part_sky:
 
     # ! updated way, taking into account cross-bins
 
-    cl_ring_big_list = []
-    for zi in range(zbins_use):
-        cl_ring_big_list.extend([cl_GG_unbinned[zi, zi],
-                                cl_LL_unbinned[zi, zi],
-                                cl_BB_unbinned[zi, zi],
-                                cl_GL_unbinned[zi, zi],
-                                0 * cl_GL_unbinned[zi, zi],
-                                0 * cl_GL_unbinned[zi, zi]
-                                ])
+    cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
+        cl_TT=cl_GG_unbinned,
+        cl_EE=cl_LL_unbinned,
+        cl_BB=cl_BB_unbinned,
+        cl_TE=cl_GL_unbinned,
+        cl_EB=cl_LB_unbinned,
+        cl_TB=cl_GB_unbinned,
+        zbins=zbins_use, spectra_types=['T', 'E', 'B'])
 
-    for offset in range(1, zbins_use):
-        for zi in range(zbins_use - offset):
-            zj = zi + offset
-            cl_ring_big_list.extend([cl_GG_unbinned[zi, zj],
-                                    cl_LL_unbinned[zi, zj],
-                                    cl_BB_unbinned[zi, zj],
-                                    cl_GL_unbinned[zi, zj],
-                                    0 * cl_GL_unbinned[zi, zj],
-                                    0 * cl_GL_unbinned[zi, zj]
-                                    ])
+    corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
+    assert len(corr_alms_tot) == zbins_use * 3, 'wrong number of alms'
 
-    # if input has len n(n+1)/2, output has len n
-    # if input has len 4, output has len 3
-    corr_alms_gg = hp.synalm(build_cl_ring_ordering(cl_GG_unbinned), lmax=3 * nside - 1, new=True)
-    corr_alms_ll = hp.synalm(build_cl_ring_ordering(cl_LL_unbinned), lmax=3 * nside - 1, new=True)
+    # extract alm for TT, EE, BB
+    corr_alms = corr_alms_tot[::3]
+    corr_Elms_Blms = list(zip(corr_alms_tot[1::3], corr_alms_tot[2::3]))
 
-    corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms_gg]
-    corr_maps_t, corr_maps_q, corr_maps_u = [hp.alm2map_spin(alm, nside, 2, 3 * nside - 1) for alm in corr_alms_ll]
-    assert False, 'stop here to check crash'
+    # compute correlated maps for each bin
+    corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms]
+    corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1) for (Elm, Blm) in corr_Elms_Blms]
 
-    # hp_pcl_tot = hp.anafast([mask * corr_maps_gg[0], mask * corr_maps_gg[1], mask * corr_maps_gg[2]])
-    hp_pcl_GG = np.zeros((nbl_tot, zbins_use, zbins_use))
-    for zi in range(zbins_use):
-        for zj in range(zbins_use):
-            _corr_maps_gg_zi = hp.remove_monopole(corr_maps_gg[zi])
-            _corr_maps_gg_zj = hp.remove_monopole(corr_maps_gg[zj])
-            hp_pcl_GG[:, zi, zj] = hp.anafast(mask * _corr_maps_gg_zi, mask * _corr_maps_gg_zj)
+    # # plot for a quick check (these are lots of plots!)
+    # for i in range(len(corr_maps_gg)):
+    #     hp.mollview(corr_maps_gg[i], title='T')
+    # for i in range(len(corr_maps_ll)):
+    #     hp.mollview(corr_maps_ll[i][0], title='Q')
+    #     hp.mollview(corr_maps_ll[i][1], title='U')
 
+    # now instantiate the fields
     f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True) for map_T in corr_maps_gg])
+    f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True) for (map_Q, map_U) in corr_maps_ll])
 
     # TODO add noise?
     cl_GG_master = np.zeros((nbl_eff, zbins_use, zbins_use))
@@ -610,8 +656,12 @@ if part_sky:
     bpw_pcl_GG_nmt = np.zeros((nbl_eff, zbins_use, zbins_use))
     bpw_pcl_GL_nmt = np.zeros((nbl_eff, zbins_use, zbins_use))
     bpw_pcl_LL_nmt = np.zeros((nbl_eff, zbins_use, zbins_use))
-    for zi in range(zbins_use):
+    hp_pcl_GG = np.zeros((nbl_tot, zbins_use, zbins_use))
+    hp_pcl_GL = np.zeros((nbl_tot, zbins_use, zbins_use))
+    hp_pcl_LL = np.zeros((nbl_tot, zbins_use, zbins_use))
+    for zi in tqdm(range(zbins_use)):
         for zj in range(zbins_use):
+            # MASTER estimator:
             cl_GG_master[:, zi, zj] = compute_master(f0[zi], f0[zj], w00)[0, :]
             cl_GL_master[:, zi, zj] = compute_master(f0[zi], f2[zj], w02)[0, :]
             cl_LL_master[:, zi, zj] = compute_master(f2[zi], f2[zj], w22)[0, :]
@@ -619,60 +669,88 @@ if part_sky:
             pcl_GG_nmt[:, zi, zj] = nmt.compute_coupled_cell(f0[zi], f0[zj])[0, :]
             pcl_GL_nmt[:, zi, zj] = nmt.compute_coupled_cell(f0[zi], f2[zj])[0, :]
             pcl_LL_nmt[:, zi, zj] = nmt.compute_coupled_cell(f2[zi], f2[zj])[0, :]
-            # "bandpowers" = binned (pseudo)-C_l
+            # * "bandpowers" = binned (pseudo)-C_l
             bpw_pcl_GG_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_GG_nmt[:, zi, zj])
             bpw_pcl_GL_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_GL_nmt[:, zi, zj])
             bpw_pcl_LL_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_LL_nmt[:, zi, zj])
+            # * with healpy:
+            # 1. build a flat list of the 3 maps for the i and j zbins
+            _corr_maps_zi = list(itertools.chain([corr_maps_gg[zi]], corr_maps_ll[zi]))
+            _corr_maps_zj = list(itertools.chain([corr_maps_gg[zj]], corr_maps_ll[zj]))
+            # 2. remove monopole
+            _corr_maps_zi = [hp.remove_monopole(_corr_maps_zi[spec_ix]) for spec_ix in range(3)]
+            _corr_maps_zj = [hp.remove_monopole(_corr_maps_zj[spec_ix]) for spec_ix in range(3)]
+            # 3. compute cls for each bin
+            hp_pcl_tot = hp.anafast(map1=[_corr_maps_zi[0] * mask, _corr_maps_zi[1] * mask, _corr_maps_zi[2] * mask],
+                                    map2=[_corr_maps_zj[0] * mask, _corr_maps_zj[1] * mask, _corr_maps_zj[2] * mask])
+            # output is TT, EE, BB, TE, EB, TB
+            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :]
+            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :]
+            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :]
 
     # ! compare results
-    block = 'GGGG'
+    block = 'GLGL'
+    zi, zj = 0, 5
+    
 
-    if block == 'GGGG':
-        hp_pcl = hp_pcl_GG
-        nmt_pcl = pcl_GG_nmt
-        master_cl = cl_GG_master
-        cl_th_bpw = cl_GG_bpw
-        cl_th_unbinned = cl_GG_unbinned
-        cl_th_bpw_dav = cl_GG_bpw_dav
-        noise_idx = 0
-        mm_gg = w00.get_coupling_matrix()
-        pseudo_cl_dav = np.einsum('ij,jkl->ikl', mm_gg, cl_GG_unbinned)
-    elif block == 'LLLL':
-        hp_pcl = hp_pcl_LL
-        nmt_pcl = pcl_LL_nmt
-        master_cl = cl_LL_master
-        cl_th_bpw = cl_LL_bpw
-        cl_th_bpw_dav = cl_LL_bpw_dav
-        cl_th_unbinned = cl_LL_unbinned
-        noise_idx = 1
-        mm_ll = w22.get_coupling_matrix()
-        pseudo_cl_dav = np.einsum('ij,jkl->ikl', mm_ll[:nbl_tot, :nbl_tot], cl_LL_unbinned)
-    # TODO add this
-    # elif block == 'GLGL':
+    for block in ['GGGG', 'LLLL', 'GLGL']:
+        
+        if block == 'GGGG':
+            hp_pcl = hp_pcl_GG
+            nmt_pcl = pcl_GG_nmt
+            master_cl = cl_GG_master
+            cl_th_bpw = cl_GG_bpw
+            cl_th_unbinned = cl_GG_unbinned
+            cl_th_bpw_dav = cl_GG_bpw_dav
+            noise_idx = 0
+            mm_gg = w00.get_coupling_matrix()
+            pseudo_cl_dav = np.einsum('ij,jkl->ikl', mm_gg, cl_GG_unbinned)
+        elif block == 'LLLL':
+            hp_pcl = hp_pcl_LL
+            nmt_pcl = pcl_LL_nmt
+            master_cl = cl_LL_master
+            cl_th_bpw = cl_LL_bpw
+            cl_th_bpw_dav = cl_LL_bpw_dav
+            cl_th_unbinned = cl_LL_unbinned
+            noise_idx = 1
+            mm_ll = w22.get_coupling_matrix()
+            pseudo_cl_dav = np.einsum('ij,jkl->ikl', mm_ll[:nbl_tot, :nbl_tot], cl_LL_unbinned)
+        elif block == 'GLGL':
+            hp_pcl = hp_pcl_GL
+            nmt_pcl = pcl_GL_nmt
+            master_cl = cl_GL_master
+            cl_th_bpw = cl_GL_bpw
+            cl_th_bpw_dav = cl_GL_bpw_dav
+            cl_th_unbinned = cl_GL_unbinned
+            noise_idx = 1
+            mm_gl = w02.get_coupling_matrix()
+            pseudo_cl_dav = np.einsum('ij,jkl->ikl', mm_gl[:nbl_tot, :nbl_tot], cl_GL_unbinned)  # TODO test this better!
 
-    assert np.allclose(cl_th_bpw, cl_th_bpw_dav, atol=0, rtol=1e-4)
+        assert np.allclose(cl_th_bpw, cl_th_bpw_dav, atol=0, rtol=1e-4)
 
-    zi, zj = 1, 2
-    plt.figure()
-    clr = cm.rainbow(np.linspace(0, 1, zbins_use))
+        plt.figure()
+        clr = cm.rainbow(np.linspace(0, 1, zbins_use))
 
-    plt.plot(ells_tot, hp_pcl[:, zi, zj], label=f'hp pseudo-cl', alpha=.7)
-    plt.plot(ells_tot, nmt_pcl[:, zi, zj], label=f'nmt pseudo-cl', alpha=.7, ls='--')
-    plt.plot(ells_eff, master_cl[:, zi, zj], label=f'MASTER-cl', alpha=.7, marker='.')
-    plt.plot(ells_tot, pseudo_cl_dav[:, zi, zj], label=f'dav pseudo-cl', alpha=.7)
+        plt.plot(ells_tot, hp_pcl[:, zi, zj], label=f'hp pseudo-cl', alpha=.7)
+        plt.plot(ells_tot, nmt_pcl[:, zi, zj], label=f'nmt pseudo-cl', alpha=.7, ls='--')
+        plt.plot(ells_eff, master_cl[:, zi, zj], label=f'MASTER-cl', alpha=.7, marker='.')
+        plt.plot(ells_tot, pseudo_cl_dav[:, zi, zj], label=f'dav pseudo-cl', alpha=.7)
 
-    plt.scatter(ells_eff, cl_th_bpw[:, zi, zj] * fsky, marker='.', label=f'bpw th cls*fsky')
-    plt.plot(ells_tot, cl_th_unbinned[:, zi, zj], label=f'unbinned th cls')
-    plt.plot(ells_tot, cl_th_unbinned[:, zi, zj] * fsky, label=f'unbinned th cls*fsky')
+        plt.scatter(ells_eff, cl_th_bpw[:, zi, zj] * fsky, marker='.', label=f'bpw th cls*fsky')
+        plt.plot(ells_tot, cl_th_unbinned[:, zi, zj], label=f'unbinned th cls')
+        plt.plot(ells_tot, cl_th_unbinned[:, zi, zj] * fsky, label=f'unbinned th cls*fsky')
 
-    plt.xlabel(r'$\ell$')
-    plt.axvline(lmax_healpy_safe, color='k', ls='--', label='1.5 * nside', alpha=.7)
-    plt.yscale('log')
-    plt.legend()
-    plt.ylabel(r'$C_\ell$')
-    plt.title(f'{block}, nside={nside}, fsky={fsky:.2f}, zi={zi}, zj={zj}')
-    plt.xscale('log')
-    plt.tight_layout()
+        plt.xlabel(r'$\ell$')
+        plt.axvline(lmax_healpy_safe, color='k', ls='--', label='1.5 * nside', alpha=.7)
+        plt.yscale('log')
+        plt.legend()
+        plt.ylabel(r'$C_\ell$')
+        plt.title(f'{block}, nside={nside}, fsky={fsky:.2f}, zi={zi}, zj={zj}')
+        plt.xscale('log')
+        plt.tight_layout()
+        
+        plt.show()
+        plt.savefig(f'{block}.png')
 
     assert False, 'stop here'
 
