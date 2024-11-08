@@ -816,12 +816,16 @@ if part_sky:
     cl_eb = np.zeros_like(cl_GG_4covnmt)
     cl_bb = np.zeros_like(cl_GG_4covnmt)
 
-    # cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-    #  coupled, cw, w00, w02, w22, nbl_4covnmt)
+    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
+     coupled, cw, w00, w02, w22, nbl_4covnmt)
+    cov_nmt_10d_v2 = utils.nmt_gaussian_cov_v2(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
+     coupled, cw, w00, w02, w22, nbl_4covnmt)
     # cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
     #                                            coupled, cw, w00, w02, w22, nbl_4covnmt)
-    cov_nmt_10d = utils.nmt_gaussian_cov_spin0_v2(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-                                               coupled, cw, w00, w02, w22, nbl_4covnmt)
+    # cov_nmt_10d = utils.nmt_gaussian_cov_spin0_v2(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
+    #                                               coupled, cw, w00, w02, w22, nbl_4covnmt)
+    
+    np.testing.assert_allclose(cov_nmt_10d, cov_nmt_10d_v2, atol=0, rtol=1e-8)
 
     probename_dict = {
         'L': 0,
@@ -877,12 +881,6 @@ if part_sky:
                                         ells_out_edges=ells_eff_edges, weights=None,
                                         which_binning='mean')
 
-    # 0000 ok
-    # 1000 ok
-    # 1100 ok
-    # 1111 ok
-    # 1101 NO
-    # 1110 NO (SAME DIFF AS ABOVE)
     zi, zj, zk, zl = 1, 1, 0, 1
     block = 'GLGL'
     # for zi, zj, zk, zl in z_combinations:
@@ -1009,39 +1007,26 @@ if part_sky:
                                            nbl_eff, zbins_use, ind_use.copy(), GL_or_LG)
     cov_sb_4d = utils.cov_3x2pt_10D_to_4D(bin_cov_sb_10d, probe_ordering,
                                           nbl_eff, zbins_use, ind_use.copy(), GL_or_LG)
+
     # ell-probe-zpair ordering
     # cov_nmt_2d = utils.cov_4D_to_2D(cov_nmt_4d, block_index='ij', optimize=True)
     # cov_sb_2d = utils.cov_4D_to_2D(cov_sb_4d, block_index='vincenzo', optimize=True)
-
     # probe-ell-zpair ordering
     cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_nmt_4d, zbins_use, block_index='ell')
     cov_sb_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_sb_4d, zbins_use, block_index='ell')
-    symm_cov_nmt_2d = utils.symmetrize_2d_array(cov_nmt_2d)
-
-    # ! import sylvain, in zpair-probe-ell ordering
-    # cov_syl_2d = np.load('/home/davide/Documenti/Lavoro/Programmi/Spaceborne_covg/input/davide_comparison_3x2_fullsky_2bins_NS512_LMIN10_BW50.npy')
-    cov_syl_2d = np.load(
-        '/home/davide/Documenti/Lavoro/Programmi/Spaceborne_covg/input/davide_comparison_nonoise_3x2_fullsky_2bins_NS512_LMIN10_BW50.npy')
-
-    # reshape to probe_ell_spair
-    cov_syl_4d = utils.cov_2D_to_4D(cov_syl_2d, nbl=nbl_eff, block_index='ij', optimize=True)
-    cov_syl_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_syl_4d, zbins_use, block_index='ell')  # here put 'ij' or 'ell'
+    # symm_cov_nmt_2d = utils.symmetrize_2d_array(cov_nmt_2d)
 
     # plot full covs and diag
     utils.matshow(cov_nmt_2d, 'dav', log=True, abs_val=True)
-    utils.matshow(cov_syl_2d, 'syl', log=True, abs_val=True)
-    utils.matshow(utils.percent_diff(cov_nmt_2d, cov_syl_2d), 'dav/syl [%]', log=True, abs_val=True, threshold=1)
+    utils.matshow(utils.percent_diff(cov_nmt_2d, cov_sb_2d), 'dav/sb [%]', log=True, abs_val=True, threshold=1)
 
     k_diag = 0
     diag_sb = np.diag(cov_sb_2d, k=k_diag)
-    diag_syl = np.diag(cov_syl_2d, k=k_diag)
     diag_nmt = np.diag(cov_nmt_2d, k=k_diag)
     fig, ax = plt.subplots(2, 1, sharex=True,
                            gridspec_kw={'wspace': 0, 'hspace': 0, 'height_ratios': [2, 1]})
     ax[0].semilogy(diag_sb, label='sb')
-    ax[0].semilogy(diag_syl, ls='--', label='syl')
     ax[0].semilogy(diag_nmt, ls='--', label='nmt')
-    ax[1].plot(utils.percent_diff(diag_sb, diag_syl), c='tab:orange')
     ax[1].plot(utils.percent_diff(diag_sb, diag_nmt), c='tab:green')
     ax[1].set_xlabel('total cov idx')
     ax[0].set_ylabel(f'diag total cov, k={k_diag}')
@@ -1049,14 +1034,11 @@ if part_sky:
     ax[0].legend()
     fig.suptitle('Total cov diag: LL - GL - GG')
 
-    # ! plot different zij x zjk blocks and slices
-    utils.matshow(cov_nmt_4d[0, 0, :], 'cov_nmt_4d[0, 0, :]')
-    utils.matshow(cov_sb_4d[0, 0, :], 'cov_sb_4d[0, 0, :]')
-    utils.matshow(utils.percent_diff(cov_sb_4d[0, 0, :, :],
-                  cov_sb_4d[0, 0, :, :].T), 'sb/sb.T', log=False, threshold=0.1)
-    utils.matshow(utils.percent_diff(cov_nmt_4d[0, 0, :, :],
-                  cov_nmt_4d[0, 0, :, :].T), 'nmt/nmt.T', log=False, threshold=0.1)
-    utils.matshow(utils.percent_diff(cov_sb_4d[0, 0, :, :], cov_nmt_4d[0, 0, :, :]), 'sb/nmt', log=False, threshold=0.1)
+    # ! check different zij x zjk blocks
+    if fsky == 1:
+        for ell_idx in range(nbl_eff):
+            np.testing.assert_allclose(cov_sb_4d[ell_idx, ell_idx, :, :], cov_nmt_4d[ell_idx, ell_idx, :, :],
+                                       atol=0, rtol=1e-3)
 
     # check symmetry of different blocks in ell1, ell2
     print('checking symmetry of ell1xell1 covariance sub-blocks')
@@ -1075,7 +1057,6 @@ if part_sky:
                 np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
             except AssertionError:
                 print(f'SB cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
-
 
     cov_LLLL_nmt_2d = cov_nmt_2d[:elem_auto_use, :elem_auto_use]
     cov_GLLL_nmt_2d = cov_nmt_2d[elem_auto_use:elem_autpluscross_use, :elem_auto_use]
@@ -1100,7 +1081,7 @@ if part_sky:
                          'cov_GLGL_nmt_2d.T', abs_val=True, log_array=True, log_diff=True)
     utils.compare_arrays(cov_GGGG_nmt_2d, cov_GGGG_nmt_2d.T, 'cov_GGGG_nmt_2d',
                          'cov_GGGG_nmt_2d.T', abs_val=True, log_array=True, log_diff=True)
-    
+
     # And the diagonals of the diagonal blocks
     np.testing.assert_allclose(np.diag(cov_LLLL_nmt_2d), np.diag(cov_LLLL_sb_2d), atol=0, rtol=1e-3)
     np.testing.assert_allclose(np.diag(cov_GLGL_nmt_2d), np.diag(cov_GLGL_sb_2d), atol=0, rtol=1e-3)
@@ -1118,22 +1099,6 @@ if part_sky:
     utils.compare_arrays(cov_GGGL_nmt_2d, cov_GGGL_sb_2d, 'cov_GGGL_nmt_2d', 'cov_GGGL_sb_2d', **kw)
     utils.compare_arrays(cov_GLLL_nmt_2d, cov_GLLL_sb_2d, 'cov_GLLL_nmt_2d', 'cov_GLLL_sb_2d', **kw)
 
-    # ! now let's do the same for GLGL block
-    abcd = 1, 0, 1, 0
-    cov_nmt_block_4d = utils.cov_6D_to_4D_blocks(cov_nmt_10d[abcd], nbl_eff,
-                                                 zpairs_cross_use, zpairs_cross_use, ind_cross_use, ind_cross_use)
-    cov_sb_block_4d = utils.cov_6D_to_4D_blocks(bin_cov_sb_10d[abcd], nbl_eff,
-                                                zpairs_cross_use, zpairs_cross_use, ind_cross_use, ind_cross_use)
-    utils.matshow(cov_nmt_block_4d[0, 0], log=True)
-    utils.matshow(cov_sb_block_4d[0, 0], log=True)
-    utils.matshow(utils.percent_diff(cov_sb_block_4d[0, 0], cov_nmt_block_4d[0, 0]), log=False, threshold=1)
-
-    # plot full matrix
-    utils.matshow(cov_nmt_2d, log=True, abs_val=True, title=f'symmetrized NaMaster covariance full')
-    utils.matshow(cov_sb_2d, log=True, abs_val=True, title=f'SB covariance full')
-    utils.matshow(utils.percent_diff(cov_nmt_2d, cov_sb_2d),
-                  log=False, abs_val=True, threshold=1, title=f'nmt/sb [%]')
-
     # ! plot main diagonal of full 2d covariance
     k_diag = 0
     diag_sb = np.diag(cov_nmt_2d, k=k_diag)
@@ -1148,42 +1113,6 @@ if part_sky:
     ax[1].set_ylabel('nmt/sb [%]')
     ax[0].legend()
     fig.suptitle('Total cov diag: LL - GL - GG')
-
-    lim_1 = zpairs_auto_use
-    lim_2 = zpairs_cross_use + zpairs_auto_use
-    lim_3 = zpairs_3x2pt_use
-
-    cov_3x2pt_nmt_4D = utils.cov_3x2pt_10D_to_4D(cov_nmt_10d, probe_ordering, nbl_eff,
-                                                 zbins_use, ind_use.copy(), GL_or_LG)
-    cov_3x2pt_sb_4D = utils.cov_3x2pt_10D_to_4D(bin_cov_sb_10d, probe_ordering, nbl_eff,
-                                                zbins_use, ind_use.copy(), GL_or_LG)
-    cov_LG_LL_nmt_2d = utils.cov_4D_to_2D(cov_nmt_block_4d[:, :, lim_1:lim_2, :lim_1], 'ell')
-    cov_LG_GG_nmt_2d = utils.cov_4D_to_2D(cov_nmt_block_4d[:, :, lim_1:lim_2, lim_2:lim_3], 'ell')
-    cov_GG_LL_nmt_2d = utils.cov_4D_to_2D(cov_nmt_block_4d[:, :, lim_2:lim_3, :lim_1], 'ell')
-    cov_GG_LG_nmt_2d = utils.cov_4D_to_2D(cov_nmt_block_4d[:, :, lim_2:lim_3, lim_1:lim_2], 'ell')
-    cov_LG_LL_sb_2d = utils.cov_4D_to_2D(cov_sb_block_4d[:, :, lim_1:lim_2, :lim_1], 'ell')
-    cov_LG_GG_sb_2d = utils.cov_4D_to_2D(cov_sb_block_4d[:, :, lim_1:lim_2, lim_2:lim_3], 'ell')
-    cov_GG_LL_sb_2d = utils.cov_4D_to_2D(cov_sb_block_4d[:, :, lim_2:lim_3, :lim_1], 'ell')
-    cov_GG_LG_sb_2d = utils.cov_4D_to_2D(cov_sb_block_4d[:, :, lim_2:lim_3, lim_1:lim_2], 'ell')
-
-    cov_block_nmt = cov_nmt_10d[1, 0, 1, 0, :, :, 1, 0, 1, 0]
-    cov_block_sb = bin_cov_sb_10d[1, 0, 1, 0, :, :, 1, 0, 1, 0]
-
-    diag_nmt = np.diag(cov_block_nmt, k=k_diag)
-    diag_sb = np.diag(cov_block_sb, k=k_diag)
-    fig, ax = plt.subplots(2, 1, figsize=(10, 10), sharex=True,
-                           gridspec_kw={'wspace': 0, 'hspace': 0, 'height_ratios': [2, 1]})
-    ax[0].semilogy(np.abs(diag_nmt), label='nmt')
-    ax[0].semilogy(np.abs(diag_sb), ls='--', label='sb')
-    ax[1].plot(utils.percent_diff(diag_nmt, diag_sb))
-    ax[1].set_xlabel('total cov idx')
-    ax[0].set_ylabel(f'diag total cov, k={k_diag}')
-    ax[1].set_ylabel('nmt/sb [%]')
-    ax[0].legend()
-    fig.suptitle('abs diag cov {abcd}')
-    
-    assert False    
-    
 
     # construct ell1xell2 multiprobe cov (single zbin combination!!)
     row_1 = np.hstack((bin_cov_sb_10d[0, 0, 0, 0, :, :, zi, zj, zk, zl],
