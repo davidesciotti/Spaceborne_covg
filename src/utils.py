@@ -134,152 +134,8 @@ def symmetrize_2d_array(array_2d):
     return array_2d
 
 
-def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff, coupled, cw, w00, w02, w22, nbl_4covnmt):
-
-    # * NOTE: the order of the arguments (in particular for the cls) is the following
-    # * spin_a1, spin_a2, spin_b1, spin_b2,
-    # * cla1b1, cla1b2, cla2b1, cla2b2
-    # * the order of the output dimensions depends on the order of the input list. See below:
-    # * [cl_te, cl_tb] - > TE=0, TB=1
-    # * covar_TT_TE = covar_00_02[:, 0, :, 0]x
-    # * covar_TT_TB = covar_00_02[:, 0, :, 1]
-
-    cl_et = cl_te.transpose(0, 2, 1)
-    cl_bt = cl_tb.transpose(0, 2, 1)  # not so sure about this but it's 0 for the moment
-
-    print('Computing partial-sky Gaussian covariance with NaMaster...')
-    cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl_eff, nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
-    
-    # TODO use only the unique zbin combinations
-    z_combinations = list(itertools.product(range(zbins_use), repeat=4))
-    for zi, zj, zk, zl in tqdm(z_combinations):
-        
-        covar_00_00 = nmt.gaussian_covariance(cw,
-                                              0, 0, 0, 0,  # Spins of the 4 fields
-                                              [cl_tt[:, zi, zk]],  # TT
-                                              [cl_tt[:, zi, zl]],  # TT
-                                              [cl_tt[:, zj, zk]],  # TT
-                                              [cl_tt[:, zj, zl]],  # TT
-                                              coupled=coupled,
-                                              wa=w00, wb=w00).reshape([nbl_4covnmt, 1,
-                                                                       nbl_4covnmt, 1])
-        covar_TT_TT = covar_00_00[:, 0, :, 0]
-
-        covar_00_02 = nmt.gaussian_covariance(cw,
-                                              0, 0, 0, 2,  # Spins of the 4 fields
-                                              [cl_tt[:, zi, zk]],  # TT
-                                              [cl_te[:, zi, zl], cl_tb[:, zi, zl]],  # TE, TB
-                                              [cl_tt[:, zj, zk]],  # TT
-                                              [cl_te[:, zj, zl], cl_tb[:, zj, zl]],  # TE, TB
-                                              coupled=coupled,
-                                              wa=w00, wb=w02).reshape([nbl_4covnmt, 1,
-                                                                       nbl_4covnmt, 2])
-        covar_TT_TE = covar_00_02[:, 0, :, 0]
-        # covar_TT_TB = covar_00_02[:, 0, :, 1]
-
-        covar_02_00 = nmt.gaussian_covariance(cw,
-                                              0, 2, 0, 0,  # Spins of the 4 fields
-                                              [cl_tt[:, zi, zk]],  # TT
-                                              [cl_tt[:, zi, zl]],  # TT
-                                              [cl_et[:, zj, zk], cl_bt[:, zj, zk]],  # TE, TB
-                                              [cl_et[:, zj, zl], cl_bt[:, zj, zl]],  # TE, TB
-                                              coupled=coupled,
-                                              wa=w02, wb=w00).reshape([nbl_4covnmt, 2,
-                                                                       nbl_4covnmt, 1])
-        covar_TE_TT = covar_02_00[:, 0, :, 0]
-        covar_TB_TT = covar_02_00[:, 1, :, 0]
-
-        covar_02_02 = nmt.gaussian_covariance(cw,
-                                              0, 2, 0, 2,  # Spins of the 4 fields
-                                              [cl_tt[:, zi, zk]],  # TT
-                                              [cl_te[:, zi, zl], cl_tb[:, zi, zl]],  # TE, TB
-                                              [cl_et[:, zj, zk], cl_bt[:, zj, zk]],  # ET, BT
-                                              [cl_ee[:, zj, zl], cl_eb[:, zj, zl],
-                                               cl_eb[:, zj, zl], cl_bb[:, zj, zl]],  # EE, EB, BE, BB
-                                              coupled=coupled,
-                                              wa=w02, wb=w02).reshape([nbl_4covnmt, 2,
-                                                                       nbl_4covnmt, 2])
-        covar_TE_TE = covar_02_02[:, 0, :, 0]
-        covar_TE_TB = covar_02_02[:, 0, :, 1]
-        covar_TB_TE = covar_02_02[:, 1, :, 0]
-        covar_TB_TB = covar_02_02[:, 1, :, 1]
-
-        covar_00_22 = nmt.gaussian_covariance(cw,
-                                              0, 0, 2, 2,  # Spins of the 4 fields
-                                              [cl_te[:, zi, zk], cl_tb[:, zi, zk]],  # TE, TB
-                                              [cl_te[:, zi, zl], cl_tb[:, zi, zl]],  # TE, TB
-                                              [cl_te[:, zj, zk], cl_tb[:, zj, zk]],  # TE, TB
-                                              [cl_te[:, zj, zl], cl_tb[:, zj, zl]],  # TE, TB
-                                              coupled=coupled,
-                                              wa=w00, wb=w22).reshape([nbl_4covnmt, 1,
-                                                                       nbl_4covnmt, 4])
-        covar_TT_EE = covar_00_22[:, 0, :, 0]
-        covar_TT_EB = covar_00_22[:, 0, :, 1]
-        covar_TT_BE = covar_00_22[:, 0, :, 2]
-        covar_TT_BB = covar_00_22[:, 0, :, 3]
-
-        covar_02_22 = nmt.gaussian_covariance(cw,
-                                              0, 2, 2, 2,  # Spins of the 4 fields
-                                              [cl_te[:, zi, zk], cl_tb[:, zi, zk]],  # TE, TB
-                                              [cl_te[:, zi, zl], cl_tb[:, zi, zl]],  # TE, TB
-                                              [cl_ee[:, zj, zk], cl_eb[:, zj, zk],
-                                               cl_eb[:, zj, zk], cl_bb[:, zj, zk]],  # EE, EB, BE, BB
-                                              [cl_ee[:, zj, zl], cl_eb[:, zj, zl],
-                                               cl_eb[:, zj, zl], cl_bb[:, zj, zl]],  # EE, EB, BE, BB
-                                              coupled=coupled,
-                                              wa=w02, wb=w22).reshape([nbl_4covnmt, 2,
-                                                                       nbl_4covnmt, 4])
-        covar_TE_EE = covar_02_22[:, 0, :, 0]
-        covar_TE_EB = covar_02_22[:, 0, :, 1]
-        covar_TE_BE = covar_02_22[:, 0, :, 2]
-        covar_TE_BB = covar_02_22[:, 0, :, 3]
-        covar_TB_EE = covar_02_22[:, 1, :, 0]
-        covar_TB_EB = covar_02_22[:, 1, :, 1]
-        covar_TB_BE = covar_02_22[:, 1, :, 2]
-        covar_TB_BB = covar_02_22[:, 1, :, 3]
-
-        covar_22_22 = nmt.gaussian_covariance(cw,
-                                              2, 2, 2, 2,  # Spins of the 4 fields
-                                              [cl_ee[:, zi, zk], cl_eb[:, zi, zk],
-                                               cl_eb[:, zi, zk], cl_bb[:, zi, zk]],  # EE, EB, BE, BB
-                                              [cl_ee[:, zi, zl], cl_eb[:, zi, zl],
-                                               cl_eb[:, zi, zl], cl_bb[:, zi, zl]],  # EE, EB, BE, BB
-                                              [cl_ee[:, zj, zk], cl_eb[:, zj, zk],
-                                               cl_eb[:, zj, zk], cl_bb[:, zj, zk]],  # EE, EB, BE, BB
-                                              [cl_ee[:, zj, zl], cl_eb[:, zj, zl],
-                                               cl_eb[:, zj, zl], cl_bb[:, zj, zl]],  # EE, EB, BE, BB
-                                              coupled=coupled,
-                                              wa=w22, wb=w22).reshape([nbl_4covnmt, 4,
-                                                                       nbl_4covnmt, 4])
-
-        covar_EE_EE = covar_22_22[:, 0, :, 0]
-        covar_EE_EB = covar_22_22[:, 0, :, 1]
-        covar_EE_BE = covar_22_22[:, 0, :, 2]
-        covar_EE_BB = covar_22_22[:, 0, :, 3]
-        covar_EB_EE = covar_22_22[:, 1, :, 0]
-        covar_EB_EB = covar_22_22[:, 1, :, 1]
-        covar_EB_BE = covar_22_22[:, 1, :, 2]
-        covar_EB_BB = covar_22_22[:, 1, :, 3]
-        covar_BE_EE = covar_22_22[:, 2, :, 0]
-        covar_BE_EB = covar_22_22[:, 2, :, 1]
-        covar_BE_BE = covar_22_22[:, 2, :, 2]
-        covar_BE_BB = covar_22_22[:, 2, :, 3]
-        covar_BB_EE = covar_22_22[:, 3, :, 0]
-        covar_BB_EB = covar_22_22[:, 3, :, 1]
-        covar_BB_BE = covar_22_22[:, 3, :, 2]
-        covar_BB_BB = covar_22_22[:, 3, :, 3]
-
-        cov_nmt_10d_arr[0, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_EE_EE
-        cov_nmt_10d_arr[1, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_TE_EE
-        cov_nmt_10d_arr[1, 1, 0, 0, :, :, zi, zj, zk, zl] = covar_TT_EE
-        cov_nmt_10d_arr[1, 0, 1, 0, :, :, zi, zj, zk, zl] = covar_TE_TE
-        cov_nmt_10d_arr[1, 1, 1, 0, :, :, zi, zj, zk, zl] = covar_TT_TE
-        cov_nmt_10d_arr[1, 1, 1, 1, :, :, zi, zj, zk, zl] = covar_TT_TT
-        cov_nmt_10d_arr[1, 0, 1, 1, :, :, zi, zj, zk, zl] = covar_TE_TT
-
-    return cov_nmt_10d_arr
-
-def nmt_gaussian_cov_v2(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff, coupled, cw, w00, w02, w22, nbl_4covnmt):
+def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff, coupled, cw, w00, w02, w22,
+                     nbl_4covnmt, compute_all_blocks):
 
     # * NOTE: the order of the arguments (in particular for the cls) is the following
     # * spin_a1, spin_a2, spin_b1, spin_b2,
@@ -295,21 +151,23 @@ def nmt_gaussian_cov_v2(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl
 
     print('Computing partial-sky Gaussian covariance with NaMaster...')
     cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl_eff, nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
-    
+
     def cl_00_list(zi, zj):
         return [cl_tt[:, zi, zj]]
+
     def cl_02_list(zi, zj):
         return [cl_te[:, zi, zj], cl_tb[:, zi, zj]]
+
     def cl_20_list(zi, zj):
         return [cl_et[:, zi, zj], cl_bt[:, zi, zj]]
+
     def cl_22_list(zi, zj):
         return [cl_ee[:, zi, zj], cl_eb[:, zi, zj], cl_be[:, zi, zj], cl_bb[:, zi, zj]]
 
-    
     # TODO use only the unique zbin combinations
     z_combinations = list(itertools.product(range(zbins_use), repeat=4))
     for zi, zj, zk, zl in tqdm(z_combinations):
-        
+
         covar_00_00 = nmt.gaussian_covariance(cw,
                                               0, 0, 0, 0,  # Spins of the 4 fields
                                               cl_00_list(zi, zk),  # TT
@@ -333,17 +191,19 @@ def nmt_gaussian_cov_v2(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl
         covar_TT_TE = covar_00_02[:, 0, :, 0]
         covar_TT_TB = covar_00_02[:, 0, :, 1]
 
-        covar_02_00 = nmt.gaussian_covariance(cw,
-                                              0, 2, 0, 0,  # Spins of the 4 fields
-                                              cl_00_list(zi, zk),  # TT
-                                              cl_00_list(zi, zl),  # TT
-                                              cl_20_list(zj, zk),  # TE, TB
-                                              cl_20_list(zj, zl),  # TE, TB
+        covar_00_22 = nmt.gaussian_covariance(cw,
+                                              0, 0, 2, 2,  # Spins of the 4 fields
+                                              cl_02_list(zi, zk),  # TE, TB
+                                              cl_02_list(zi, zl),  # TE, TB
+                                              cl_02_list(zj, zk),  # TE, TB
+                                              cl_02_list(zj, zl),  # TE, TB
                                               coupled=coupled,
-                                              wa=w02, wb=w00).reshape([nbl_4covnmt, 2,
-                                                                       nbl_4covnmt, 1])
-        covar_TE_TT = covar_02_00[:, 0, :, 0]
-        covar_TB_TT = covar_02_00[:, 1, :, 0]
+                                              wa=w00, wb=w22).reshape([nbl_4covnmt, 1,
+                                                                       nbl_4covnmt, 4])
+        covar_TT_EE = covar_00_22[:, 0, :, 0]
+        covar_TT_EB = covar_00_22[:, 0, :, 1]
+        covar_TT_BE = covar_00_22[:, 0, :, 2]
+        covar_TT_BB = covar_00_22[:, 0, :, 3]
 
         covar_02_02 = nmt.gaussian_covariance(cw,
                                               0, 2, 0, 2,  # Spins of the 4 fields
@@ -358,20 +218,6 @@ def nmt_gaussian_cov_v2(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl
         covar_TE_TB = covar_02_02[:, 0, :, 1]
         covar_TB_TE = covar_02_02[:, 1, :, 0]
         covar_TB_TB = covar_02_02[:, 1, :, 1]
-
-        covar_00_22 = nmt.gaussian_covariance(cw,
-                                              0, 0, 2, 2,  # Spins of the 4 fields
-                                              cl_02_list(zi, zk),  # TE, TB
-                                              cl_02_list(zi, zl),  # TE, TB
-                                              cl_02_list(zj, zk),  # TE, TB
-                                              cl_02_list(zj, zl),  # TE, TB
-                                              coupled=coupled,
-                                              wa=w00, wb=w22).reshape([nbl_4covnmt, 1,
-                                                                       nbl_4covnmt, 4])
-        covar_TT_EE = covar_00_22[:, 0, :, 0]
-        covar_TT_EB = covar_00_22[:, 0, :, 1]
-        covar_TT_BE = covar_00_22[:, 0, :, 2]
-        covar_TT_BB = covar_00_22[:, 0, :, 3]
 
         covar_02_22 = nmt.gaussian_covariance(cw,
                                               0, 2, 2, 2,  # Spins of the 4 fields
@@ -418,10 +264,48 @@ def nmt_gaussian_cov_v2(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl
         covar_BB_BE = covar_22_22[:, 3, :, 2]
         covar_BB_BB = covar_22_22[:, 3, :, 3]
 
+        if compute_all_blocks:
+
+            covar_22_02 = nmt.gaussian_covariance(cw,
+                                                  2, 2, 0, 2,  # Spins of the 4 fields
+                                                  cl_20_list(zi, zk),  # TT
+                                                  cl_22_list(zi, zl),  # TT
+                                                  cl_20_list(zj, zk),  # TE, TB
+                                                  cl_22_list(zj, zl),  # TE, TB
+                                                  coupled=coupled,
+                                                  wa=w22, wb=w02).reshape([nbl_4covnmt, 4,
+                                                                           nbl_4covnmt, 2])
+            covar_EE_TE = covar_22_02[:, 0, :, 0]
+
+            covar_22_00 = nmt.gaussian_covariance(cw,
+                                                  2, 2, 0, 0,  # Spins of the 4 fields
+                                                  cl_20_list(zi, zk),  # TT
+                                                  cl_20_list(zi, zl),  # TT
+                                                  cl_20_list(zj, zk),  # TE, TB
+                                                  cl_20_list(zj, zl),  # TE, TB
+                                                  coupled=coupled,
+                                                  wa=w22, wb=w00).reshape([nbl_4covnmt, 4,
+                                                                           nbl_4covnmt, 1])
+            covar_EE_TT = covar_22_00[:, 0, :, 0]
+
+            covar_02_00 = nmt.gaussian_covariance(cw,
+                                                  0, 2, 0, 0,  # Spins of the 4 fields
+                                                  cl_00_list(zi, zk),  # TT
+                                                  cl_00_list(zi, zl),  # TT
+                                                  cl_20_list(zj, zk),  # TE, TB
+                                                  cl_20_list(zj, zl),  # TE, TB
+                                                  coupled=coupled,
+                                                  wa=w02, wb=w00).reshape([nbl_4covnmt, 2,
+                                                                           nbl_4covnmt, 1])
+            covar_TE_TT = covar_02_00[:, 0, :, 0]
+
+            cov_nmt_10d_arr[0, 0, 1, 0, :, :, zi, zj, zk, zl] = covar_EE_TE
+            cov_nmt_10d_arr[0, 0, 1, 1, :, :, zi, zj, zk, zl] = covar_EE_TT
+            cov_nmt_10d_arr[1, 0, 1, 1, :, :, zi, zj, zk, zl] = covar_TE_TT
+
         cov_nmt_10d_arr[0, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_EE_EE
         cov_nmt_10d_arr[1, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_TE_EE
         cov_nmt_10d_arr[1, 0, 1, 0, :, :, zi, zj, zk, zl] = covar_TE_TE
-        cov_nmt_10d_arr[1, 0, 1, 1, :, :, zi, zj, zk, zl] = covar_TE_TT
         cov_nmt_10d_arr[1, 1, 0, 0, :, :, zi, zj, zk, zl] = covar_TT_EE
         cov_nmt_10d_arr[1, 1, 1, 0, :, :, zi, zj, zk, zl] = covar_TT_TE
         cov_nmt_10d_arr[1, 1, 1, 1, :, :, zi, zj, zk, zl] = covar_TT_TT
@@ -449,7 +333,6 @@ def nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, 
                                               wa=w00, wb=w00)
         covar_TT_TT = covar_00_00
 
-        # TODO start - check this better - still new
         covar_00_02 = nmt.gaussian_covariance(cw,
                                               0, 0, 0, 0,  # Spins of the 4 fields
                                               [cl_tt[:, zi, zk]],  # TT
@@ -460,7 +343,6 @@ def nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, 
                                               wa=w00, wb=w00)
         covar_TT_TE = covar_00_02
 
-        # ! new
         covar_02_00 = nmt.gaussian_covariance(cw,
                                               0, 0, 0, 0,  # Spins of the 4 fields
                                               [cl_tt[:, zi, zk]],  # TT
@@ -470,8 +352,6 @@ def nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, 
                                               coupled=coupled,
                                               wa=w00, wb=w00)
         covar_TE_TT = covar_02_00
-        # ! end new
-        # TODO end - check this better - still new
 
         covar_02_02 = nmt.gaussian_covariance(cw,
                                               0, 0, 0, 0,  # Spins of the 4 fields
@@ -512,7 +392,7 @@ def nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, 
                                               coupled=coupled,
                                               wa=w00, wb=w00)
         covar_EE_EE = covar_22_22
-        
+
         covar_22_02 = nmt.gaussian_covariance(cw,
                                               0, 0, 0, 0,  # Spins of the 4 fields
                                               [cl_et[:, zi, zk]],
@@ -522,7 +402,7 @@ def nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, 
                                               coupled=coupled,
                                               wa=w00, wb=w00)
         covar_EE_TE = covar_22_02
-        
+
         covar_22_00 = nmt.gaussian_covariance(cw,
                                               0, 0, 0, 0,  # Spins of the 4 fields
                                               [cl_et[:, zi, zk]],
@@ -542,9 +422,7 @@ def nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, 
         cov_nmt_10d_arr[1, 1, 1, 0, :, :, zi, zj, zk, zl] = covar_TT_TE
         cov_nmt_10d_arr[1, 1, 1, 1, :, :, zi, zj, zk, zl] = covar_TT_TT
 
-        
     return cov_nmt_10d_arr
-
 
 
 def bin_cell(ells_in, ells_out, ells_out_edges, cls_in, weights, which_binning, ells_eff=None):
