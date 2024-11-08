@@ -302,6 +302,12 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
             cov_nmt_10d_arr[0, 0, 1, 0, :, :, zi, zj, zk, zl] = covar_EE_TE
             cov_nmt_10d_arr[0, 0, 1, 1, :, :, zi, zj, zk, zl] = covar_EE_TT
             cov_nmt_10d_arr[1, 0, 1, 1, :, :, zi, zj, zk, zl] = covar_TE_TT
+            
+        else:
+            # switch zi, zj with zk, zl in this case
+            cov_nmt_10d_arr[0, 0, 1, 0, :, :, zk, zl, zi, zj] = covar_TE_EE.T
+            cov_nmt_10d_arr[0, 0, 1, 1, :, :, zk, zl, zi, zj] = covar_TT_EE.T
+            cov_nmt_10d_arr[1, 0, 1, 1, :, :, zk, zl, zi, zj] = covar_TT_TE.T
 
         cov_nmt_10d_arr[0, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_EE_EE
         cov_nmt_10d_arr[1, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_TE_EE
@@ -1814,6 +1820,141 @@ def cov2corr(cov):
     correlation[cov == 0] = 0
     return correlation
 
+
+def cov_4D_to_6D_blocks_opt(cov_4D, nbl, zbins, ind_ab, ind_cd, symmetrize_output_ab, symmetrize_output_cd):
+    assert ind_ab.shape[1] == ind_cd.shape[1], 'ind_ab and ind_cd must have the same number of columns'
+    assert ind_ab.shape[1] in {2, 4}, 'ind_ab and ind_cd must have 2 or 4 columns'
+
+    ncols = ind_ab.shape[1]
+    zpairs_ab = ind_ab.shape[0]
+    zpairs_cd = ind_cd.shape[0]
+
+    cov_6D = np.zeros((nbl, nbl, zbins, zbins, zbins, zbins))
+
+    ell2_indices, ij_indices, kl_indices = np.ogrid[:nbl, :zpairs_ab, :zpairs_cd]
+    i_indices = ind_ab[ij_indices, ncols - 2]
+    j_indices = ind_ab[ij_indices, ncols - 1]
+    k_indices = ind_cd[kl_indices, ncols - 2]
+    l_indices = ind_cd[kl_indices, ncols - 1]
+
+    cov_6D[:, ell2_indices, i_indices, j_indices, k_indices,
+           l_indices] = cov_4D[:, ell2_indices, ij_indices, kl_indices]
+
+    if symmetrize_output_ab or symmetrize_output_cd:
+        for ell1 in range(nbl):
+            for ell2 in range(nbl):
+                if symmetrize_output_ab:
+                    for i in range(zbins):
+                        for j in range(zbins):
+                            cov_6D[ell1, ell2, :, :, i, j] = symmetrize_2d_array(cov_6D[ell1, ell2, :, :, i, j])
+                if symmetrize_output_cd:
+                    for i in range(zbins):
+                        for j in range(zbins):
+                            cov_6D[ell1, ell2, i, j, :, :] = symmetrize_2d_array(cov_6D[ell1, ell2, i, j, :, :])
+
+    return cov_6D
+
+
+# @njit
+def cov_4D_to_6D_blocks(cov_4D, nbl, zbins, ind_ab, ind_cd, 
+                        symmetrize_output_ab: bool, symmetrize_output_cd: bool):
+    """
+    Reshapes the 4D covariance matrix to a 6D covariance matrix, even for the cross-probe (non-square) blocks needed
+    to build the 3x2pt covariance.
+    
+    This function can be used for the normal routine (valid for auto-covariance, i.e., LL-LL, GG-GG, GL-GL and LG-LG) 
+    where `zpairs_ab = zpairs_cd` and `ind_ab = ind_cd`.
+    
+    Args:
+        cov_4D (np.ndarray): The 4D covariance matrix.
+        nbl (int): The number of ell bins.
+        zbins (int): The number of redshift bins.
+        ind_ab (np.ndarray): The indices for the first pair of redshift bins.
+        ind_cd (np.ndarray): The indices for the second pair of redshift bins.
+        symmetrize_output_ab (bool): Whether to symmetrize the output cov block for the first pair of probes.
+        symmetrize_output_cd (bool): Whether to symmetrize the output cov block for the second pair of probes.
+    
+    Returns:
+        np.ndarray: The 6D covariance matrix.
+    """
+
+    assert ind_ab.shape[1] == ind_cd.shape[1], 'ind_ab and ind_cd must have the same number of columns'
+    assert ind_ab.shape[1] == 2 or ind_ab.shape[1] == 4, 'ind_ab and ind_cd must have 2 or 4 columns'
+    ncols = ind_ab.shape[1]
+
+    zpairs_ab = ind_ab.shape[0]
+    zpairs_cd = ind_cd.shape[0]
+
+    cov_6D = np.zeros((nbl, nbl, zbins, zbins, zbins, zbins))
+    for ell2 in range(nbl):
+        for ij in range(zpairs_ab):
+            for kl in range(zpairs_cd):
+                i, j, k, l = ind_ab[ij, ncols - 2], ind_ab[ij, ncols - 1], ind_cd[kl, ncols - 2], ind_cd[kl, ncols - 1]
+                cov_6D[:, ell2, i, j, k, l] = cov_4D[:, ell2, ij, kl]
+
+    # GL blocks are not symmetric
+    # ! this part makes this function quite slow
+    if symmetrize_output_ab:
+        for ell1 in range(nbl):
+            for ell2 in range(nbl):
+                for i in range(zbins):
+                    for j in range(zbins):
+                        cov_6D[ell1, ell2, :, :, i, j] = symmetrize_2d_array(cov_6D[ell1, ell2, :, :, i, j])
+
+    if symmetrize_output_cd:
+        for ell1 in range(nbl):
+            for ell2 in range(nbl):
+                for i in range(zbins):
+                    for j in range(zbins):
+                        cov_6D[ell1, ell2, i, j, :, :] = symmetrize_2d_array(cov_6D[ell1, ell2, i, j, :, :])
+
+    return cov_6D
+
+def cov_3x2pt_4d_to_10d_dict(cov_3x2pt_4d, zbins, probe_ordering, nbl, ind_copy, symmetrize_output_dict, optimize=False):
+
+    zpairs_auto, zpairs_cross, _ = get_zpairs(zbins)
+
+    ind_copy = ind_copy.copy()  # just to ensure the input ind file is not changed
+
+    ind_auto = ind_copy[:zpairs_auto, :]
+    ind_cross = ind_copy[zpairs_auto:zpairs_cross + zpairs_auto, :]
+    ind_dict = {('L', 'L'): ind_auto,
+                ('G', 'L'): ind_cross,
+                ('G', 'G'): ind_auto}
+
+    assert tuple(tuple(p) for p in probe_ordering) == (('L', 'L'), ('G', 'L'), ('G', 'G')), 'more elaborate probe_ordering not implemented yet'
+
+    # slice the 4d cov to be able to use cov_4D_to_6D_blocks on the nine separate blocks
+    zpairs_sum = zpairs_auto + zpairs_cross
+    cov_3x2pt_8d_dict = {}
+    cov_3x2pt_8d_dict['L', 'L', 'L', 'L'] = cov_3x2pt_4d[:, :, :zpairs_auto, :zpairs_auto]
+    cov_3x2pt_8d_dict['L', 'L', 'G', 'L'] = cov_3x2pt_4d[:, :, :zpairs_auto, zpairs_auto:zpairs_sum]
+    cov_3x2pt_8d_dict['L', 'L', 'G', 'G'] = cov_3x2pt_4d[:, :, :zpairs_auto, zpairs_sum:]
+
+    cov_3x2pt_8d_dict['G', 'L', 'L', 'L'] = cov_3x2pt_4d[:, :, zpairs_auto:zpairs_sum, :zpairs_auto]
+    cov_3x2pt_8d_dict['G', 'L', 'G', 'L'] = cov_3x2pt_4d[:, :, zpairs_auto:zpairs_sum, zpairs_auto:zpairs_sum]
+    cov_3x2pt_8d_dict['G', 'L', 'G', 'G'] = cov_3x2pt_4d[:, :, zpairs_auto:zpairs_sum, zpairs_sum:]
+
+    cov_3x2pt_8d_dict['G', 'G', 'L', 'L'] = cov_3x2pt_4d[:, :, zpairs_sum:, :zpairs_auto]
+    cov_3x2pt_8d_dict['G', 'G', 'G', 'L'] = cov_3x2pt_4d[:, :, zpairs_sum:, zpairs_auto:zpairs_sum]
+    cov_3x2pt_8d_dict['G', 'G', 'G', 'G'] = cov_3x2pt_4d[:, :, zpairs_sum:, zpairs_sum:]
+
+    if optimize:
+        # this version is only marginally faster, it seems
+        cov_4D_to_6D_blocks_func = cov_4D_to_6D_blocks_opt
+    else:
+        # safer, default value
+        cov_4D_to_6D_blocks_func = cov_4D_to_6D_blocks
+
+    cov_3x2pt_10d_dict = {}
+    for key in cov_3x2pt_8d_dict.keys():
+        cov_3x2pt_10d_dict[key] = cov_4D_to_6D_blocks_func(
+            cov_3x2pt_8d_dict[key], nbl, zbins,
+            ind_dict[key[0], key[1]], ind_dict[key[2], key[3]],
+            symmetrize_output_dict[key[0], key[1]],
+            symmetrize_output_dict[key[2], key[3]])
+
+    return cov_3x2pt_10d_dict
 
 ## build the noise matrices ##
 def build_noise(zbins, nProbes, sigma_eps2, ng_shear, ng_clust, EP_or_ED='EP'):
