@@ -817,16 +817,10 @@ if part_sky:
     cl_bb = np.zeros_like(cl_GG_4covnmt)
 
     cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-     coupled, cw, w00, w02, w22, nbl_4covnmt)
-    cov_nmt_10d_v2 = utils.nmt_gaussian_cov_v2(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-     coupled, cw, w00, w02, w22, nbl_4covnmt)
+     coupled, cw, w00, w02, w22, nbl_4covnmt, False)
     # cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
     #                                            coupled, cw, w00, w02, w22, nbl_4covnmt)
-    # cov_nmt_10d = utils.nmt_gaussian_cov_spin0_v2(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-    #                                               coupled, cw, w00, w02, w22, nbl_4covnmt)
     
-    np.testing.assert_allclose(cov_nmt_10d, cov_nmt_10d_v2, atol=0, rtol=1e-8)
-
     probename_dict = {
         'L': 0,
         'G': 1,
@@ -1013,8 +1007,9 @@ if part_sky:
     # cov_sb_2d = utils.cov_4D_to_2D(cov_sb_4d, block_index='vincenzo', optimize=True)
     # probe-ell-zpair ordering
     cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_nmt_4d, zbins_use, block_index='ell')
+    cov_nmt_2d = utils.symmetrize_2d_array(cov_nmt_2d)
     cov_sb_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_sb_4d, zbins_use, block_index='ell')
-    # symm_cov_nmt_2d = utils.symmetrize_2d_array(cov_nmt_2d)
+    # ! important note: the 2d covariance has all the blocks after symmetrixing, the 4D and 6D ones do not    
 
     # plot full covs and diag
     utils.matshow(cov_nmt_2d, 'dav', log=True, abs_val=True)
