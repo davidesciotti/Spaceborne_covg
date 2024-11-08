@@ -163,3 +163,6 @@ src/catalog.fits
 src/nz.npz
 input/data_DR1
 .aider*
+input/davide_comparison_3x2_fullsky_2bins_NS512_LMIN10_BW50.npy
+input/davide_comparison_nonoise_3x2_fullsky_10bins_NS512_LMIN10_BW50.npy
+input/davide_comparison_nonoise_3x2_fullsky_2bins_NS512_LMIN10_BW50.npy
