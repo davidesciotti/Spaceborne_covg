@@ -16,33 +16,43 @@ import os
 ROOT = os.getenv("ROOT")
 
 
-def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned, 
-                      nbl, zbins, mask, nside, nreal, coupled, which_cls):
+def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
+                      nbl, zbins, mask, nside, nreal, coupled, which_cls, save_maps):
 
     # TODO use only independent z pairs
-    cov_sim_10d = np.zeros((2, 2, 2, 2, nbl, nbl, zbins, zbins, zbins, zbins))
+    cov_sim_10d = np.zeros((n_probes, n_probes, n_probes, n_probes, nbl, nbl, zbins, zbins, zbins, zbins))
     sim_cl_GG = np.zeros((nreal, nbl, zbins, zbins))
     sim_cl_GL = np.zeros((nreal, nbl, zbins, zbins))
     sim_cl_LL = np.zeros((nreal, nbl, zbins, zbins))
 
-    # 1. ! produce and bin simulated cls for all zbin combinations
+    corr_maps_gg_list, corr_maps_ll_list = produce_correlated_maps(cl_TT=cl_GG_unbinned,
+                                                                   cl_EE=cl_LL_unbinned,
+                                                                   cl_BB=cl_BB_unbinned,
+                                                                   cl_TE=cl_GL_unbinned,
+                                                                   cl_EB=cl_EB_unbinned,
+                                                                   cl_TB=cl_TB_unbinned,
+                                                                   nreal=nreal,
+                                                                   nside=nside,
+                                                                   zbins_use=zbins_use)
+    
+    if save_maps:
+        np.save(f'../output/corr_maps_gg_list_nreal{nreal}_nside{nside}.npy', np.array(corr_maps_gg_list))
+        np.save(f'../output/corr_maps_ll_list_nreal{nreal}_nside{nside}.npy', np.array(corr_maps_ll_list))
+
+    # 1. compute and bin simulated cls for all zbin combinations, using input correlated maps
     z_combinations = list(itertools.product(range(zbins), repeat=2))
     for zi, zj in tqdm(z_combinations):
-        simulated_cls_dict = produce_gaussian_sims(cl_TT=cl_GG_unbinned,
-                                                   cl_EE=cl_LL_unbinned,
-                                                   cl_BB=cl_BB_unbinned,
-                                                   cl_TE=cl_GL_unbinned,
-                                                   cl_EB=cl_EB_unbinned,
-                                                   cl_TB=cl_TB_unbinned,
-                                                   zi=zi, zj=zj,
-                                                   nside=nside, nreal=nreal,
-                                                   mask=mask,
-                                                   coupled=coupled,
-                                                   which_cls=which_cls)
+        simulated_cls_dict = pcls_from_maps(corr_maps_gg_list=corr_maps_gg_list,
+                                            corr_maps_ll_list=corr_maps_ll_list,
+                                            zi=zi, zj=zj,
+                                            nreal=nreal,
+                                            mask=mask,
+                                            coupled=coupled,
+                                            which_cls=which_cls)
         sim_cl_GG_ij = simulated_cls_dict['pseudo_cl_tt'][:, 0, :]
         sim_cl_GL_ij = simulated_cls_dict['pseudo_cl_te'][:, 0, :]
         sim_cl_LL_ij = simulated_cls_dict['pseudo_cl_ee'][:, 0, :]
-        
+
         assert sim_cl_GG_ij.shape == sim_cl_GL_ij.shape == sim_cl_LL_ij.shape, 'Simulated cls must have the same shape'
 
         # bin if needed and store in arrays
@@ -55,8 +65,8 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
             sim_cl_GG[:, :, zi, zj] = sim_cl_GG_ij[:, :]
             sim_cl_GL[:, :, zi, zj] = sim_cl_GL_ij[:, :]
             sim_cl_LL[:, :, zi, zj] = sim_cl_LL_ij[:, :]
-            
 
+    # 2. compute sample covariance
     z_combinations = list(itertools.product(range(zbins_use), repeat=4))
     for zi, zj, zk, zl in tqdm(z_combinations):
 
@@ -309,32 +319,24 @@ def find_ellmin_from_bpw(bpw, ells, threshold):
     return ell_min
 
 
-def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nreal, nside, mask, coupled, which_cls):
+def produce_correlated_maps(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, nreal, nside, zbins_use):
 
-    # both healpy anafast and nmt.compute_coupled_cell return the coupled cls. Dividing by fsky gives a rough
-    # approximation of the true Cls
-    correction_factor = 1. if coupled else fsky
+    print(f'Generating {nreal} maps for nside {nside}...')
 
-    pseudo_cl_tt_list = []
-    pseudo_cl_te_list = []
-    pseudo_cl_ee_list = []
-
-    print(f'Generating {nreal} maps for nside {nside} and computing cls with {which_cls}...')
-
-    for _ in tqdm(range(nreal)):
-
-        # old
-        # map_T, map_Q, map_U = cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
-        
-        # new
-        cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
+    cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
         cl_TT=cl_TT,
         cl_EE=cl_EE,
         cl_BB=cl_BB,
         cl_TE=cl_TE,
         cl_EB=cl_EB,
         cl_TB=cl_TB,
-        zbins=zbins_use, spectra_types=['T', 'E', 'B'])
+        zbins=zbins_use,
+        spectra_types=['T', 'E', 'B'])
+
+    corr_maps_gg_list = []
+    corr_maps_ll_list = []
+
+    for _ in tqdm(range(nreal)):
 
         corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
         assert len(corr_alms_tot) == zbins_use * 3, 'wrong number of alms'
@@ -347,14 +349,35 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nrea
         corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms]
         corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1) for (Elm, Blm) in corr_Elms_Blms]
 
+        corr_maps_gg_list.append(corr_maps_gg)
+        corr_maps_ll_list.append(corr_maps_ll)
+
+    return corr_maps_gg_list, corr_maps_ll_list
+
+
+def pcls_from_maps(corr_maps_gg_list, corr_maps_ll_list, zi, zj, nreal, mask, coupled, which_cls):
+
+    # both healpy anafast and nmt.compute_coupled_cell return the coupled cls. Dividing by fsky gives a rough
+    # approximation of the true Cls
+    correction_factor = 1. if coupled else fsky
+
+    pseudo_cl_tt_list = []
+    pseudo_cl_te_list = []
+    pseudo_cl_ee_list = []
+
+    print(f'Computing pseudo-cls for zi={zi} and zj={zj} with {which_cls}...')
+    for i in tqdm(range(nreal)):
+
         if which_cls == 'namaster':
-            
+
             # old
             # f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
-            
+
             # new
-            f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True) for map_T in corr_maps_gg])
-            f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True) for (map_Q, map_U) in corr_maps_ll])
+            f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True)
+                           for map_T in corr_maps_gg_list[i]])
+            f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True)
+                           for (map_Q, map_U) in corr_maps_ll_list[i]])
 
             if coupled:
                 # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
@@ -368,9 +391,9 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nrea
                 pseudo_cl_ee = compute_master(f2[zi], f2[zj], w22)
 
         elif which_cls == 'healpy':
-            
-            _corr_maps_zi = list(itertools.chain([corr_maps_gg[zi]], corr_maps_ll[zi]))
-            _corr_maps_zj = list(itertools.chain([corr_maps_gg[zj]], corr_maps_ll[zj]))
+
+            _corr_maps_zi = list(itertools.chain([corr_maps_gg_list[i][zi]], corr_maps_ll_list[i][zi]))
+            _corr_maps_zj = list(itertools.chain([corr_maps_gg_list[i][zj]], corr_maps_ll_list[i][zj]))
             # 2. remove monopole
             _corr_maps_zi = [hp.remove_monopole(_corr_maps_zi[spec_ix]) for spec_ix in range(3)]
             _corr_maps_zj = [hp.remove_monopole(_corr_maps_zj[spec_ix]) for spec_ix in range(3)]
@@ -399,14 +422,14 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nrea
         pseudo_cl_te_list.append(pseudo_cl_te)
         pseudo_cl_ee_list.append(pseudo_cl_ee)
 
-    sim_cls_dict = {
+    sim_pcls_dict = {
         'pseudo_cl_tt': np.array(pseudo_cl_tt_list),
         'pseudo_cl_te': np.array(pseudo_cl_te_list),
         'pseudo_cl_ee': np.array(pseudo_cl_ee_list),
     }
     print('...done')
 
-    return sim_cls_dict
+    return sim_pcls_dict
 
 
 def sample_cov_nmt(zi, probe):
@@ -799,8 +822,8 @@ if part_sky:
         cl_EE=cl_LL_unbinned,
         cl_BB=cl_BB_unbinned,
         cl_TE=cl_GL_unbinned,
-        cl_EB=cl_LB_unbinned,
-        cl_TB=cl_GB_unbinned,
+        cl_EB=cl_EB_unbinned,
+        cl_TB=cl_TB_unbinned,
         zbins=zbins_use, spectra_types=['T', 'E', 'B'])
 
     corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
@@ -1021,7 +1044,6 @@ if part_sky:
                                          ells_4covsb, delta_ells_4covsb)
     bin_cov_sb_10d = np.zeros((n_probes, n_probes, n_probes, n_probes, nbl_eff,
                                nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
-    
 
     # ! SAMPLE COVARIANCE - FROM NAMASTER DOCS
     if cfg['compute_namaster_sims']:
@@ -1046,7 +1068,7 @@ if part_sky:
     cov_sim_10d, sim_cl_GG, sim_cl_GL, sim_cl_LL = sample_covariance(
         cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
         nbl_eff, zbins_use, mask, nside, nreal, coupled,
-        cfg['which_cls'])
+        cfg['which_cls'], cfg['save_sim_maps'])
 
     # # ! BIN COVARIANCE MATRICES IF NEEDED
     # # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
@@ -1073,7 +1095,7 @@ if part_sky:
                                         ells_in=ells_tot, ells_out=ells_eff,
                                         ells_out_edges=ells_eff_edges, weights=None,
                                         which_binning='mean')
-                    
+
             if cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
                 print(f'Binning sample {block_name} covariance')
                 cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
@@ -1107,6 +1129,9 @@ if part_sky:
     cov_sb_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_sb_4d, zbins_use, block_index='ell')
     cov_sim_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_sim_4d, zbins_use, block_index='ell')
     # cov_nmt_2d = utils.symmetrize_2d_array(cov_nmt_2d_min)
+    
+    if cfg['save_cov_sim_2d']:
+        np.save(f'../output/cov_sim_2d_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2.npy', cov_sim_2d)
 
     # ! check different zij x zjk blocks
     if fsky == 1:
@@ -1116,22 +1141,22 @@ if part_sky:
             utils.compare_arrays(cov_sb_4d[ell_idx, ell_idx, :, :], cov_nmt_4d[ell_idx, ell_idx, :, :])
 
     # ! check symmetry of different blocks in ell1, ell2
-    print('checking symmetry of ell1xell1 covariance sub-blocks')
-    for a, b, c, d in tqdm(z_combinations):
-        for zi, zj, zk, zl in z_combinations:
+    # print('checking symmetry of ell1xell1 covariance sub-blocks')
+    # for a, b, c, d in tqdm(z_combinations):
+    #     for zi, zj, zk, zl in z_combinations:
 
-            cov_block = cov_nmt_10d[a, b, c, d, :, :, zi, zj, zk, zl]
-            try:
-                np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
-            except AssertionError:
-                print(f'NMT cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
-                # utils.matshow(utils.percent_diff(cov_block, cov_block.T), log=False, abs_val=True, threshold=1)
+    #         cov_block = cov_nmt_10d[a, b, c, d, :, :, zi, zj, zk, zl]
+    #         try:
+    #             np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
+    #         except AssertionError:
+    #             print(f'NMT cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
+    #             # utils.matshow(utils.percent_diff(cov_block, cov_block.T), log=False, abs_val=True, threshold=1)
 
-            cov_block = cov_sb_10d[a, b, c, d, :, :, zi, zj, zk, zl]
-            try:
-                np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
-            except AssertionError:
-                print(f'SB cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
+    #         cov_block = cov_sb_10d[a, b, c, d, :, :, zi, zj, zk, zl]
+    #         try:
+    #             np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
+    #         except AssertionError:
+    #             print(f'SB cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
 
     # ! compare different blocks individually
     cov_LLLL_nmt_2d = cov_nmt_2d[:elem_auto_use, :elem_auto_use]
@@ -1185,7 +1210,6 @@ if part_sky:
     utils.compare_arrays(cov_nmt_2d, cov_sb_2d, 'cov_nmt_2d', 'cov_sb_2d', **kw)
     utils.compare_arrays(cov_nmt_2d, cov_sim_2d, 'cov_nmt_2d', 'cov_sim_2d', **kw)
     utils.compare_arrays(cov_nmt_2d, cov_nmt_2d.T, 'cov_nmt_2d', 'cov_nmt_2d.T', **kw)
-    
 
     # ! check inversion of different blocks and total 2d covs
     print('Testing inversion of the covariance blocks...')
