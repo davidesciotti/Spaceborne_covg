@@ -39,11 +39,11 @@ sigma_eps_i: 0.26
 # survey_area_deg2: 14700 # in deg^2
 # survey_area_deg2: 2500  # in deg^2
 survey_area_deg2: 41252.96125  # in deg^2
-nside: 512
+nside: 512  # nside of the healpix mask and maps
 apodize_mask: True
 aposize: 0.1 # apodization scale in deg
 ells_per_band: 50 # number of multipole values per bandpower
-nreal: 2
+nreal: 50 # number of Gaussian realisations
 load_simulated_cls: False  # whether to load simulated cls from file
 coupled: False  # compute the covariance of the coupled or uncoupled cls
 which_ell_weights: get_weight_list()  # get_weight_list() or get_bandpower_windows()
