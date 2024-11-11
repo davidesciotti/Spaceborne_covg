@@ -16,8 +16,8 @@ import os
 ROOT = os.getenv("ROOT")
 
 
-def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, nbl, zbins, mask, nside,
-                      nreal, coupled, which_cls):
+def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned, 
+                      nbl, zbins, mask, nside, nreal, coupled, which_cls):
 
     # TODO use only independent z pairs
     cov_sim_10d = np.zeros((2, 2, 2, 2, nbl, nbl, zbins, zbins, zbins, zbins))
@@ -28,10 +28,13 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
     # 1. ! produce and bin simulated cls for all zbin combinations
     z_combinations = list(itertools.product(range(zbins), repeat=2))
     for zi, zj in tqdm(z_combinations):
-        simulated_cls_dict = produce_gaussian_sims(cl_GG_unbinned[:, zi, zj],
-                                                   cl_LL_unbinned[:, zi, zj],
-                                                   cl_BB_unbinned[:, zi, zj],
-                                                   cl_GL_unbinned[:, zi, zj],
+        simulated_cls_dict = produce_gaussian_sims(cl_TT=cl_GG_unbinned,
+                                                   cl_EE=cl_LL_unbinned,
+                                                   cl_BB=cl_BB_unbinned,
+                                                   cl_TE=cl_GL_unbinned,
+                                                   cl_EB=cl_EB_unbinned,
+                                                   cl_TB=cl_TB_unbinned,
+                                                   zi=zi, zj=zj,
                                                    nside=nside, nreal=nreal,
                                                    mask=mask,
                                                    coupled=coupled,
@@ -306,7 +309,7 @@ def find_ellmin_from_bpw(bpw, ells, threshold):
     return ell_min
 
 
-def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, coupled, which_cls):
+def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nreal, nside, mask, coupled, which_cls):
 
     # both healpy anafast and nmt.compute_coupled_cell return the coupled cls. Dividing by fsky gives a rough
     # approximation of the true Cls
@@ -320,24 +323,64 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, nreal, nside, mask, couple
 
     for _ in tqdm(range(nreal)):
 
-        map_T, map_Q, map_U = cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
+        # old
+        # map_T, map_Q, map_U = cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
+        
+        # new
+        cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
+        cl_TT=cl_TT,
+        cl_EE=cl_EE,
+        cl_BB=cl_BB,
+        cl_TE=cl_TE,
+        cl_EB=cl_EB,
+        cl_TB=cl_TB,
+        zbins=zbins_use, spectra_types=['T', 'E', 'B'])
+
+        corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
+        assert len(corr_alms_tot) == zbins_use * 3, 'wrong number of alms'
+
+        # extract alm for TT, EE, BB
+        corr_alms = corr_alms_tot[::3]
+        corr_Elms_Blms = list(zip(corr_alms_tot[1::3], corr_alms_tot[2::3]))
+
+        # compute correlated maps for each bin
+        corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms]
+        corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1) for (Elm, Blm) in corr_Elms_Blms]
 
         if which_cls == 'namaster':
-
-            f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
+            
+            # old
+            # f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
+            
+            # new
+            f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True) for map_T in corr_maps_gg])
+            f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True) for (map_Q, map_U) in corr_maps_ll])
 
             if coupled:
                 # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
-                pseudo_cl_tt = nmt.compute_coupled_cell(f0, f0)[0] / correction_factor
-                pseudo_cl_te = nmt.compute_coupled_cell(f0, f2)[0] / correction_factor
-                pseudo_cl_ee = nmt.compute_coupled_cell(f2, f2)[0] / correction_factor
+                pseudo_cl_tt = nmt.compute_coupled_cell(f0[zi], f0[zj])[0] / correction_factor
+                pseudo_cl_te = nmt.compute_coupled_cell(f0[zi], f2[zj])[0] / correction_factor
+                pseudo_cl_ee = nmt.compute_coupled_cell(f2[zi], f2[zj])[0] / correction_factor
             else:
                 # best estimator for the true Cls
-                pseudo_cl_tt = compute_master(f0, f0, w00)
-                pseudo_cl_te = compute_master(f0, f2, w02)
-                pseudo_cl_ee = compute_master(f2, f2, w22)
+                pseudo_cl_tt = compute_master(f0[zi], f0[zj], w00)
+                pseudo_cl_te = compute_master(f0[zi], f2[zj], w02)
+                pseudo_cl_ee = compute_master(f2[zi], f2[zj], w22)
 
         elif which_cls == 'healpy':
+            
+            _corr_maps_zi = list(itertools.chain([corr_maps_gg[zi]], corr_maps_ll[zi]))
+            _corr_maps_zj = list(itertools.chain([corr_maps_gg[zj]], corr_maps_ll[zj]))
+            # 2. remove monopole
+            _corr_maps_zi = [hp.remove_monopole(_corr_maps_zi[spec_ix]) for spec_ix in range(3)]
+            _corr_maps_zj = [hp.remove_monopole(_corr_maps_zj[spec_ix]) for spec_ix in range(3)]
+            # 3. compute cls for each bin
+            hp_pcl_tot = hp.anafast(map1=[_corr_maps_zi[0] * mask, _corr_maps_zi[1] * mask, _corr_maps_zi[2] * mask],
+                                    map2=[_corr_maps_zj[0] * mask, _corr_maps_zj[1] * mask, _corr_maps_zj[2] * mask])
+            # output is TT, EE, BB, TE, EB, TB
+            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :]
+            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :]
+            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :]
 
             map_T = hp.remove_monopole(map_T)
             map_Q = hp.remove_monopole(map_Q)
@@ -691,8 +734,8 @@ if part_sky:
     cl_GL_unbinned = cl_GL_unbinned[:lmax, :zbins_use, :zbins_use]
     cl_LL_unbinned = cl_LL_unbinned[:lmax, :zbins_use, :zbins_use]
     cl_BB_unbinned = np.zeros_like(cl_LL_unbinned)
-    cl_GB_unbinned = np.zeros_like(cl_LL_unbinned)
-    cl_LB_unbinned = np.zeros_like(cl_LL_unbinned)
+    cl_TB_unbinned = np.zeros_like(cl_LL_unbinned)
+    cl_EB_unbinned = np.zeros_like(cl_LL_unbinned)
 
     cl_GG_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
     cl_GL_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
@@ -1001,7 +1044,7 @@ if part_sky:
 
     # ! SAMPLE COVARIANCE
     cov_sim_10d, sim_cl_GG, sim_cl_GL, sim_cl_LL = sample_covariance(
-        cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned,
+        cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
         nbl_eff, zbins_use, mask, nside, nreal, coupled,
         cfg['which_cls'])
 
