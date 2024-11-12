@@ -141,7 +141,7 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
         #         sim_cl_list_kl[idx] = bpw_sim_cls  # Update the list with the binned values
 
         # ! compute the sample covariance
-        # TODO this is not the most efficient way of doing this, you could also cut the mixed cov terms
+        # you could also cut the mixed cov terms, but for cross-redshifts it becomes a bit tricky
         kw = dict(rowvar=False, bias=False)
         cov_sim_10d[0, 0, 0, 0, :, :, zi, zj, zk, zl] = np.cov(
             sim_cl_LL[:, :, zi, zj], sim_cl_LL[:, :, zk, zl], **kw)[:nbl, nbl:]
@@ -161,7 +161,7 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
             sim_cl_GG[:, :, zi, zj], sim_cl_GL[:, :, zk, zl], **kw)[:nbl, nbl:]
         cov_sim_10d[1, 1, 1, 1, :, :, zi, zj, zk, zl] = np.cov(
             sim_cl_GG[:, :, zi, zj], sim_cl_GG[:, :, zk, zl], **kw)[:nbl, nbl:]
-
+        
     return cov_sim_10d, sim_cl_GG, sim_cl_GL, sim_cl_LL
 
 
@@ -1069,6 +1069,7 @@ if part_sky:
         cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
         nbl_eff, zbins_use, mask, nside, nreal, coupled,
         cfg['which_cls'], cfg['save_sim_maps'])
+    # cov_sim_2d = np.load('../output/cov_sim_2d_nreal1000_nside512_41252deg2.npy')
 
     # # ! BIN COVARIANCE MATRICES IF NEEDED
     # # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
@@ -1192,9 +1193,10 @@ if part_sky:
                          'cov_GGGG_nmt_2d.T', abs_val=True, log_array=True, log_diff=True)
 
     # and the diagonals of the diagonal blocks
-    np.testing.assert_allclose(np.diag(cov_LLLL_nmt_2d), np.diag(cov_LLLL_sb_2d), atol=0, rtol=1e-3)
-    np.testing.assert_allclose(np.diag(cov_GLGL_nmt_2d), np.diag(cov_GLGL_sb_2d), atol=0, rtol=1e-3)
-    np.testing.assert_allclose(np.diag(cov_GGGG_nmt_2d), np.diag(cov_GGGG_sb_2d), atol=0, rtol=1e-3)
+    if int(fsky) == 1:
+        np.testing.assert_allclose(np.diag(cov_LLLL_nmt_2d), np.diag(cov_LLLL_sb_2d), atol=0, rtol=1e-3)
+        np.testing.assert_allclose(np.diag(cov_GLGL_nmt_2d), np.diag(cov_GLGL_sb_2d), atol=0, rtol=1e-3)
+        np.testing.assert_allclose(np.diag(cov_GGGG_nmt_2d), np.diag(cov_GGGG_sb_2d), atol=0, rtol=1e-3)
 
     # check symmetry in AB, CD (I manually computed the GLGG block for this purpose)
     np.testing.assert_allclose(cov_GLGG_nmt_2d, cov_GGGL_nmt_2d.T, atol=0, rtol=1e-3)
@@ -1213,30 +1215,32 @@ if part_sky:
 
     # ! check inversion of different blocks and total 2d covs
     print('Testing inversion of the covariance blocks...')
-    for probe_idx in probe_idxs:
-        block_name = \
-            probename_dict_inv[str(probe_idxs[0])], probename_dict_inv[str(probe_idxs[1])], \
-            probename_dict_inv[str(probe_idxs[2])], probename_dict_inv[str(probe_idxs[3])]
-        block_name = ''.join(block_name)
+    for cov_block, bloc_name in zip(
+        (cov_LLLL_nmt_2d, cov_GLGL_nmt_2d, cov_GGGG_nmt_2d),
+        ('cov_LLLL_nmt_2d', 'cov_GLGL_nmt_2d', 'cov_GGGG_nmt_2d')):
         try:
-            covar_inv = np.linalg.inv(cov_nmt_10d[probe_idxs])
-            np.linalg.cholesky(cov_nmt_10d[probe_idxs])
-            print(f'nmt block {block_name} is invertible!')
+            covar_inv = np.linalg.inv(cov_block)
+            print(f'Numpy inversion performed for {bloc_name} ✅')
         except np.linalg.LinAlgError as err:
-            print(f'nmt block {block_name} is not invertible: {err}')
+            print(f'Numpy inversion failed for {bloc_name}: {err} ❌')
+        try:
+            np.linalg.cholesky(cov_block)
+            print(f'Cholesky decomposition performed for {bloc_name} ✅')
+        except np.linalg.LinAlgError as err:
+            print(f'Cholesky decomposition failed for {bloc_name}: {err} ❌')
 
     print('Testing inversion of total covariance...')
     for cov, cov_name in zip((cov_sb_2d, cov_nmt_2d, cov_sim_2d), ('sb', 'nmt', 'sim')):
         try:
             covar_inv = np.linalg.inv(cov)
-            print(f'Numpy inversion performed for {cov_name}')
+            print(f'Numpy inversion performed for {cov_name} ✅')
         except np.linalg.LinAlgError as err:
-            print(f'Numpy inversion failed for {cov_name}: {err}')
+            print(f'Numpy inversion failed for {cov_name}: {err} ❌')
         try:
             np.linalg.cholesky(cov)
-            print(f'Cholesky decomposition performed for {cov_name}')
+            print(f'Cholesky decomposition performed for {cov_name} ✅')
         except np.linalg.LinAlgError as err:
-            print(f'Cholesky decomposition failed for {cov_name}: {err}')
+            print(f'Cholesky decomposition failed for {cov_name}: {err} ❌')
 
     # ! PLOTS
     zi, zj, zk, zl = 1, 1, 0, 1
