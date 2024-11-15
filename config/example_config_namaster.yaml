@@ -44,10 +44,10 @@ nside: 512  # nside of the healpix mask and maps
 apodize_mask: True
 aposize: 0.1 # apodization scale in deg
 ells_per_band: 50 # number of multipole values per bandpower
-nreal: 5000 # number of Gaussian realisations
+nreal: 3000 # number of Gaussian realisations
 load_simulated_cls: False  # whether to load simulated cls from file
-coupled: False  # compute the covariance of the coupled or uncoupled cls
-coupled_cov: False  # compute the covariance of the coupled or uncoupled cls
+coupled_cls: False  # compute the covariance of the coupled or uncoupled cls
+coupled_nmt_cov: False  # compute the covariance of the coupled or uncoupled cls
 compute_all_blocks: False  # compute all probe blocks of the nmt covariance
 which_ell_weights: get_weight_list()  # get_weight_list() or get_bandpower_windows()
 which_cls: namaster  # namaster or healpy
@@ -56,7 +56,7 @@ use_INKA: False
 save_sim_maps: True
 save_sample_cov: True
 load_sample_cov: True
-sample_cov_name: "../output/cov_sim_10d_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled:s}.npy"
+sample_cov_name: "../output/cov_sim_10d_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled_cls:s}.npy"
 
 # datavector and covariance ordering options
 triu_tril: "triu" # or 'tril'. Which elements of the (symmetric) auto-spectra are kept
