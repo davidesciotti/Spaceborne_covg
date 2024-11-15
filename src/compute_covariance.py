@@ -16,10 +16,8 @@ import os
 ROOT = os.getenv("ROOT")
 
 
-
-
 def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
-                      nbl, zbins, mask, nside, nreal, coupled, which_cls, save_maps, save_sample_cov):
+                      nbl, zbins, mask, nside, nreal, coupled, which_cls):
 
     # TODO use only independent z pairs
     cov_sim_10d = np.zeros((n_probes, n_probes, n_probes, n_probes, nbl, nbl, zbins, zbins, zbins, zbins))
@@ -78,14 +76,6 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
                 sim_cl_GL[i, :, zi, zj] = sim_cl_GL_ij
                 sim_cl_LL[i, :, zi, zj] = sim_cl_LL_ij
 
-    if save_maps:
-        np.save(
-            f'../output/sim_cl_GG_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled}.npy', sim_cl_GG)
-        np.save(
-            f'../output/sim_cl_GL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled}.npy', sim_cl_GL)
-        np.save(
-            f'../output/sim_cl_LL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled}.npy', sim_cl_LL)
-
     # * 3. compute sample covariance
     for zi, zj, zk, zl in tqdm(zijkl_combinations):
 
@@ -111,11 +101,7 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
         cov_sim_10d[1, 1, 1, 1, :, :, zi, zj, zk, zl] = np.cov(
             sim_cl_GG[:, :, zi, zj], sim_cl_GG[:, :, zk, zl], **kw)[:nbl, nbl:]
 
-    if save_sample_cov:
-        np.save(
-            f'../output/cov_sim_10d_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}.npy', cov_sim_10d)
-
-    return cov_sim_10d
+    return cov_sim_10d, sim_cl_GG, sim_cl_GL, sim_cl_LL
 
 
 def build_cl_ring_ordering(cl_3d):
@@ -308,7 +294,6 @@ def produce_correlated_maps(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, nreal, nsi
     return corr_maps_gg_list, corr_maps_ll_list
 
 
-
 def pcls_from_maps(corr_maps_gg, corr_maps_ll, zi, zj, mask, coupled, which_cls):
 
     # both healpy anafast and nmt.compute_coupled_cell return the coupled cls. Dividing by fsky gives a rough
@@ -322,7 +307,7 @@ def pcls_from_maps(corr_maps_gg, corr_maps_ll, zi, zj, mask, coupled, which_cls)
         f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True)
                        for (map_Q, map_U) in corr_maps_ll])
 
-        if coupled:
+        if coupled:  # ! TODO fix this!!
             # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
             pseudo_cl_tt = nmt.compute_coupled_cell(f0[zi], f0[zj])[0] / correction_factor
             pseudo_cl_te = nmt.compute_coupled_cell(f0[zi], f2[zj])[0] / correction_factor
@@ -349,9 +334,18 @@ def pcls_from_maps(corr_maps_gg, corr_maps_ll, zi, zj, mask, coupled, which_cls)
         # hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :]
 
         # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
-        pseudo_cl_tt = hp_pcl_tot[0, :] / correction_factor
-        pseudo_cl_ee = hp_pcl_tot[1, :] / correction_factor
-        pseudo_cl_te = hp_pcl_tot[3, :] / correction_factor
+        pseudo_cl_tt = hp_pcl_tot[0, :]
+        pseudo_cl_ee = hp_pcl_tot[1, :]
+        pseudo_cl_bb = hp_pcl_tot[2, :]
+        pseudo_cl_te = hp_pcl_tot[3, :]
+        pseudo_cl_eb = hp_pcl_tot[4, :]
+        pseudo_cl_tb = hp_pcl_tot[5, :]
+        pseudo_cl_be = pseudo_cl_eb  # ! warning!!
+        if not coupled:
+
+            pseudo_cl_tt = w00.decouple_cell(pseudo_cl_tt[None, :])[0, :]
+            pseudo_cl_ee = w22.decouple_cell(np.vstack((pseudo_cl_ee, pseudo_cl_eb, pseudo_cl_be, pseudo_cl_bb)))[0, :]
+            pseudo_cl_te = w02.decouple_cell(np.vstack((pseudo_cl_te, pseudo_cl_tb)))[0, :]
 
     else:
         raise ValueError('which_cls must be namaster or healpy')
@@ -536,6 +530,7 @@ if part_sky:
     zbins_use = cfg['zbins_use']
     coupled = cfg['coupled']
     use_INKA = cfg['use_INKA']
+    which_cls = cfg['which_cls']
 
     coupled_label = 'coupled' if coupled else 'uncoupled'
 
@@ -947,7 +942,7 @@ if part_sky:
     cl_bb = np.zeros_like(cl_GG_4covnmt)
 
     # ! NAMASTER covariance
-    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt, cl_te=cl_te, cl_ee=cl_ee, 
+    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt, cl_te=cl_te, cl_ee=cl_ee,
                                          cl_tb=cl_tb, cl_eb=cl_eb, cl_bb=cl_bb,
                                          zbins=zbins_use,
                                          nbl=nbl_eff,
@@ -1001,16 +996,30 @@ if part_sky:
         plt.legend(fontsize=12, frameon=False)
         plt.show()
 
+    sample_cov_name = cfg['sample_cov_name'].format(nreal=nreal, nside=nside,
+                                                    int_survey_area_deg2=int(survey_area_deg2),
+                                                    which_cls=which_cls,
+                                                    coupled=coupled)
     # ! SAMPLE COVARIANCE
     if cfg['load_sample_cov']:
-        cov_sim_10d = np.load(
-            f'../output/cov_sim_10d_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{cfg["which_cls"]}_mask{cfg["mask_shape"]}.npy')
+        cov_sim_10d = np.load(sample_cov_name)
 
     else:
-        cov_sim_10d = sample_covariance(
+
+        cov_sim_10d, sim_cl_GG, sim_cl_GL, sim_cl_LL = sample_covariance(
             cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
-            nbl_eff, zbins_use, mask, nside, nreal, False,
-            cfg['which_cls'], cfg['save_sim_maps'], cfg['save_sample_cov'])
+            nbl_eff, zbins_use, mask, nside, nreal, coupled,
+            which_cls)
+
+        if cfg['save_sample_cov']:
+            np.save(sample_cov_name, cov_sim_10d)
+        if cfg['save_sim_maps']:
+            np.save(
+                f'../output/sim_cl_GG_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled}.npy', sim_cl_GG)
+            np.save(
+                f'../output/sim_cl_GL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled}.npy', sim_cl_GL)
+            np.save(
+                f'../output/sim_cl_LL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled}.npy', sim_cl_LL)
 
     # # ! BIN COVARIANCE MATRICES IF NEEDED
     # # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
@@ -1212,7 +1221,9 @@ if part_sky:
     for x, label in zip(x_coords, labels):
         ax[0].text(x, ax[0].get_ylim()[1] * 1.05, label, ha='center', va='bottom', fontsize=14)
 
-    fig.suptitle(f'Total cov diag\nnreal {nreal}, {int(survey_area_deg2)} deg2\n')
+    fig.suptitle(f'Total cov diag\nnreal={nreal}, {int(survey_area_deg2)} deg2, \
+        which_pcls={cfg["which_cls"]}\nmask shape={cfg["mask_shape"]}, coupled={coupled}',
+                 y=1.05)
 
     # plt.savefig(f'../output/cov_diag_k{k_diag}_nreal{nreal}_{int(survey_area_deg2)}deg2_whichcls{cfg["which_cls"]}.png', dpi=400)
     plt.show()
