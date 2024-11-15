@@ -12,6 +12,8 @@ import healpy as hp
 from tqdm import tqdm
 
 DEG2_IN_SPHERE = 4 * np.pi * (180 / np.pi)**2
+DR1_DATE = 9191.0
+
 
 from scipy.integrate import simpson
 
@@ -21,10 +23,10 @@ def percent_diff_nan(array_1, array_2, eraseNaN=True, log=False, abs_val=False):
         diff = np.where(array_1 == array_2, 0, percent_diff(array_1, array_2))
     else:
         diff = percent_diff(array_1, array_2)
-    if log:
-        diff = np.log10(diff)
     if abs_val:
         diff = np.abs(diff)
+    if log:
+        diff = np.log10(diff)
     return diff
 
 
@@ -134,8 +136,8 @@ def symmetrize_2d_array(array_2d):
     return array_2d
 
 
-def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff, coupled, cw, w00, w02, w22,
-                     nbl_4covnmt, compute_all_blocks):
+def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, coupled, cw, w00, w02, w22,
+                     compute_all_blocks):
 
     # * NOTE: the order of the arguments (in particular for the cls) is the following
     # * spin_a1, spin_a2, spin_b1, spin_b2,
@@ -150,7 +152,7 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
     cl_be = cl_eb.transpose(0, 2, 1)  # not so sure about this but it's 0 for the moment
 
     print('Computing partial-sky Gaussian covariance with NaMaster...')
-    cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl_eff, nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
+    cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl, nbl, zbins, zbins, zbins, zbins))
 
     def cl_00_list(zi, zj):
         return [cl_tt[:, zi, zj]]
@@ -165,7 +167,7 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
         return [cl_ee[:, zi, zj], cl_eb[:, zi, zj], cl_be[:, zi, zj], cl_bb[:, zi, zj]]
 
     # TODO use only the unique zbin combinations
-    z_combinations = list(itertools.product(range(zbins_use), repeat=4))
+    z_combinations = list(itertools.product(range(zbins), repeat=4))
     for zi, zj, zk, zl in tqdm(z_combinations):
 
         covar_00_00 = nmt.gaussian_covariance(cw,
@@ -175,8 +177,8 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
                                               cl_00_list(zj, zk),  # TT
                                               cl_00_list(zj, zl),  # TT
                                               coupled=coupled,
-                                              wa=w00, wb=w00).reshape([nbl_4covnmt, 1,
-                                                                       nbl_4covnmt, 1])
+                                              wa=w00, wb=w00).reshape([nbl, 1,
+                                                                       nbl, 1])
         covar_TT_TT = covar_00_00[:, 0, :, 0]
 
         covar_00_02 = nmt.gaussian_covariance(cw,
@@ -186,8 +188,8 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
                                               cl_00_list(zj, zk),  # TT
                                               cl_02_list(zj, zl),  # TE, TB
                                               coupled=coupled,
-                                              wa=w00, wb=w02).reshape([nbl_4covnmt, 1,
-                                                                       nbl_4covnmt, 2])
+                                              wa=w00, wb=w02).reshape([nbl, 1,
+                                                                       nbl, 2])
         covar_TT_TE = covar_00_02[:, 0, :, 0]
         covar_TT_TB = covar_00_02[:, 0, :, 1]
 
@@ -198,8 +200,8 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
                                               cl_02_list(zj, zk),  # TE, TB
                                               cl_02_list(zj, zl),  # TE, TB
                                               coupled=coupled,
-                                              wa=w00, wb=w22).reshape([nbl_4covnmt, 1,
-                                                                       nbl_4covnmt, 4])
+                                              wa=w00, wb=w22).reshape([nbl, 1,
+                                                                       nbl, 4])
         covar_TT_EE = covar_00_22[:, 0, :, 0]
         covar_TT_EB = covar_00_22[:, 0, :, 1]
         covar_TT_BE = covar_00_22[:, 0, :, 2]
@@ -212,8 +214,8 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
                                               cl_20_list(zj, zk),  # ET, BT
                                               cl_22_list(zj, zl),
                                               coupled=coupled,
-                                              wa=w02, wb=w02).reshape([nbl_4covnmt, 2,
-                                                                       nbl_4covnmt, 2])
+                                              wa=w02, wb=w02).reshape([nbl, 2,
+                                                                       nbl, 2])
         covar_TE_TE = covar_02_02[:, 0, :, 0]
         covar_TE_TB = covar_02_02[:, 0, :, 1]
         covar_TB_TE = covar_02_02[:, 1, :, 0]
@@ -226,8 +228,8 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
                                               cl_22_list(zj, zk),
                                               cl_22_list(zj, zl),
                                               coupled=coupled,
-                                              wa=w02, wb=w22).reshape([nbl_4covnmt, 2,
-                                                                       nbl_4covnmt, 4])
+                                              wa=w02, wb=w22).reshape([nbl, 2,
+                                                                       nbl, 4])
         covar_TE_EE = covar_02_22[:, 0, :, 0]
         covar_TE_EB = covar_02_22[:, 0, :, 1]
         covar_TE_BE = covar_02_22[:, 0, :, 2]
@@ -244,8 +246,8 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
                                               cl_22_list(zj, zk),
                                               cl_22_list(zj, zl),
                                               coupled=coupled,
-                                              wa=w22, wb=w22).reshape([nbl_4covnmt, 4,
-                                                                       nbl_4covnmt, 4])
+                                              wa=w22, wb=w22).reshape([nbl, 4,
+                                                                       nbl, 4])
 
         covar_EE_EE = covar_22_22[:, 0, :, 0]
         covar_EE_EB = covar_22_22[:, 0, :, 1]
@@ -273,8 +275,8 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
                                                   cl_20_list(zj, zk),  # TE, TB
                                                   cl_22_list(zj, zl),  # TE, TB
                                                   coupled=coupled,
-                                                  wa=w22, wb=w02).reshape([nbl_4covnmt, 4,
-                                                                           nbl_4covnmt, 2])
+                                                  wa=w22, wb=w02).reshape([nbl, 4,
+                                                                           nbl, 2])
             covar_EE_TE = covar_22_02[:, 0, :, 0]
 
             covar_22_00 = nmt.gaussian_covariance(cw,
@@ -284,8 +286,8 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
                                                   cl_20_list(zj, zk),  # TE, TB
                                                   cl_20_list(zj, zl),  # TE, TB
                                                   coupled=coupled,
-                                                  wa=w22, wb=w00).reshape([nbl_4covnmt, 4,
-                                                                           nbl_4covnmt, 1])
+                                                  wa=w22, wb=w00).reshape([nbl, 4,
+                                                                           nbl, 1])
             covar_EE_TT = covar_22_00[:, 0, :, 0]
 
             covar_02_00 = nmt.gaussian_covariance(cw,
@@ -295,8 +297,8 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_ef
                                                   cl_20_list(zj, zk),  # TE, TB
                                                   cl_20_list(zj, zl),  # TE, TB
                                                   coupled=coupled,
-                                                  wa=w02, wb=w00).reshape([nbl_4covnmt, 2,
-                                                                           nbl_4covnmt, 1])
+                                                  wa=w02, wb=w00).reshape([nbl, 2,
+                                                                           nbl, 1])
             covar_TE_TT = covar_02_00[:, 0, :, 0]
 
             cov_nmt_10d_arr[0, 0, 1, 0, :, :, zi, zj, zk, zl] = covar_EE_TE
@@ -667,7 +669,7 @@ def generate_polar_cap(area_deg2, nside):
 
     # Find the pixels within our cap
     # Vector pointing to the North Pole (θ=0, φ can be anything since θ=0 defines the pole)
-    vec = hp.ang2vec(0, 0)
+    vec = hp.ang2vec(theta=np.pi/2, phi=0)
     pixels_in_cap = hp.query_disc(nside, vec, theta_cap_rad)
 
     # Set the pixels within the cap to 1
@@ -678,6 +680,78 @@ def generate_polar_cap(area_deg2, nside):
     print(f"Actual f_sky from the mask: {fsky_actual}")
 
     return mask
+
+
+def generate_survey_mask(area_deg2, nside, shape="polar_cap"):
+    """
+    Generate a survey mask with a given area and resolution.
+
+    Parameters:
+    - area_deg2: float, area of the survey in square degrees.
+    - nside: int, HEALPix resolution parameter.
+    - shape: str, shape of the survey ("polar_cap" or "square").
+
+    Returns:
+    - mask: ndarray, HEALPix mask with 1s inside the survey region and 0s outside.
+    """
+
+    if np.isclose(area_deg2, DEG2_IN_SPHERE, rtol=1e-5, atol=0):
+        print('area_deg2 is very close to the full sky, returning a full sky mask')
+        mask = np.ones(hp.pixelfunc.nside2npix(nside))
+        return mask
+
+    print(f'Generating a {shape} mask with area {area_deg2} deg2 and resolution nside {nside}')
+
+    # Required sky fraction
+    fsky_required = deg2_to_fsky(area_deg2)
+    print(f"Required f_sky: {fsky_required}")
+
+    if shape == "polar_cap":
+        # Polar cap mask
+        area_rad2 = area_deg2 * (np.pi / 180)**2
+        theta_cap_rad = np.arccos(1 - area_rad2 / (2 * np.pi))
+        theta_cap_deg = np.degrees(theta_cap_rad)
+        print(f"Angular radius of the cap in degrees: {theta_cap_deg}")
+
+        mask = np.zeros(hp.nside2npix(nside))
+        vec = hp.ang2vec(theta=np.pi/2, phi=0)
+        pixels_in_cap = hp.query_disc(nside, vec, theta_cap_rad)
+        mask[pixels_in_cap] = 1
+
+    elif shape == "square":
+        # Square mask (defined in RA and Dec)
+        side_length_deg = np.sqrt(area_deg2)
+        print(f"Side length of the square in degrees: {side_length_deg}")
+
+        # Define RA and Dec limits for the square
+        ra_min, ra_max = -side_length_deg / 2, side_length_deg / 2
+        dec_min, dec_max = -side_length_deg / 2, side_length_deg / 2
+
+        print(f"RA range: [{ra_min}, {ra_max}], Dec range: [{dec_min}, {dec_max}]")
+
+        mask = np.zeros(hp.nside2npix(nside))
+
+        # Loop through all pixels and check if they fall within the square bounds
+        theta, phi = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+        ra = np.degrees(phi)
+        dec = 90 - np.degrees(theta)
+
+        # Apply conditions for RA and Dec
+        inside_square = (
+            (ra >= ra_min) & (ra <= ra_max) &
+            (dec >= dec_min) & (dec <= dec_max)
+        )
+        mask[inside_square] = 1
+
+    else:
+        raise ValueError("Invalid shape. Supported shapes: 'polar_cap', 'square'.")
+
+    # Calculate the actual sky fraction of the generated mask
+    fsky_mask = np.sum(mask) / len(mask)
+    print(f"Actual f_sky from the mask: {fsky_mask}")
+
+    return mask
+
 
 
 def generate_ind(triu_tril_square, row_col_major, size):
