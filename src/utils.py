@@ -15,7 +15,70 @@ DEG2_IN_SPHERE = 4 * np.pi * (180 / np.pi)**2
 DR1_DATE = 9191.0
 
 
-from scipy.integrate import simpson
+def cl_3D_to_1D(cl_3D, ind, is_auto_spectrum, block_index):
+    """This flattens the Cl_3D to 1D. Two ordeting conventions are used:
+    - whether to use ij or ell as the outermost index (determined by the ordering of the for loops).
+      This is going to be the index of the blocks in the 2D covariance matrix.
+    - which ind file to use
+    Sylvain uses block_index == 'pair_wise', me and Vincenzo block_index == 'ell_wise':
+    I add this distinction in the "if" to make it clearer.
+    :param is_auto_spectrum:
+    """
+
+    assert cl_3D.shape[1] == cl_3D.shape[2], 'cl_3D should be an array of shape (nbl, zbins, zbins)'
+
+    nbl = cl_3D.shape[0]
+    zbins = cl_3D.shape[1]
+
+    zpairs_auto, zpairs_cross, zpairs_3x2pt = get_zpairs(zbins)
+
+    # 1. reshape to 2D
+    if is_auto_spectrum:
+        cl_2D = Cl_3D_to_2D_symmetric(cl_3D, nbl, zpairs_auto, zbins)
+    elif not is_auto_spectrum:
+        cl_2D = Cl_3D_to_2D_asymmetric(cl_3D)
+    else:
+        raise ValueError('is_auto_spectrum must be either True or False')
+
+    # 2. flatten to 1D
+    if block_index == 'ell' or block_index == 'vincenzo':
+        cl_1D = cl_2D.flatten(order='C')
+    elif block_index == 'ij' or block_index == 'sylvain':
+        cl_1D = cl_2D.flatten(order='F')
+    else:
+        raise ValueError('block_index must be either "ij" or "ell"')
+
+    return cl_1D
+
+
+def Cl_3D_to_2D_symmetric(Cl_3D, nbl, npairs, zbins):
+    """ reshape from (nbl, zbins, zbins) to (nbl, npairs)  according to
+    upper traigular ordering 0-th rows filled first, then second from i to zbins...
+    """
+    triu_idx = np.triu_indices(zbins)
+    Cl_2D = np.zeros((nbl, npairs))
+    for ell in range(nbl):
+        for i in range(npairs):
+            Cl_2D[ell, i] = Cl_3D[ell, triu_idx[0][i], triu_idx[1][i]]
+    return Cl_2D
+
+
+def Cl_3D_to_2D_asymmetric(Cl_3D):
+    """ reshape from (nbl, zbins, zbins) to (nbl, npairs), rows first 
+    (valid for asymmetric Cij, i.e. C_XC)
+    """
+    assert Cl_3D.ndim == 3, 'Cl_3D must be a 3D array'
+
+    nbl = Cl_3D.shape[0]
+    zbins = Cl_3D.shape[1]
+    zpairs_cross = zbins ** 2
+
+    Cl_2D = np.reshape(Cl_3D, (nbl, zpairs_cross))
+
+    # Cl_2D = np.zeros((nbl, zpairs_cross))
+    # for ell in range(nbl):
+    #     Cl_2D[ell, :] = Cl_3D[ell, :].flatten(order='C')
+    return Cl_2D
 
 
 def percent_diff_nan(array_1, array_2, eraseNaN=True, log=False, abs_val=False):
@@ -669,7 +732,7 @@ def generate_polar_cap(area_deg2, nside):
 
     # Find the pixels within our cap
     # Vector pointing to the North Pole (θ=0, φ can be anything since θ=0 defines the pole)
-    vec = hp.ang2vec(theta=np.pi/2, phi=0)
+    vec = hp.ang2vec(theta=0, phi=0)  # ! changinf theta to np.pi/2 changes the survey area a bit!
     pixels_in_cap = hp.query_disc(nside, vec, theta_cap_rad)
 
     # Set the pixels within the cap to 1
@@ -714,7 +777,7 @@ def generate_survey_mask(area_deg2, nside, shape="polar_cap"):
         print(f"Angular radius of the cap in degrees: {theta_cap_deg}")
 
         mask = np.zeros(hp.nside2npix(nside))
-        vec = hp.ang2vec(theta=np.pi/2, phi=0)
+        vec = hp.ang2vec(theta=0, phi=0)
         pixels_in_cap = hp.query_disc(nside, vec, theta_cap_rad)
         mask[pixels_in_cap] = 1
 
