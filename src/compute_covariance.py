@@ -675,6 +675,7 @@ if part_sky:
     print('lmax_healpy:', lmax_healpy)
     print('nside:', nside)
     print('fsky after apodization:', fsky)
+    print('survey area after apodization:', survey_area_deg2, 'deg2')
 
     # cut and bin the theory
     cl_GG_unbinned = cl_GG_unbinned[:lmax, :zbins_use, :zbins_use]
@@ -772,7 +773,6 @@ if part_sky:
     f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True) for map_T in corr_maps_gg])
     f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True) for (map_Q, map_U) in corr_maps_ll])
 
-    # TODO add noise?
     cl_GG_master = np.zeros((nbl_eff, zbins_use, zbins_use))
     cl_GL_master = np.zeros((nbl_eff, zbins_use, zbins_use))
     cl_LL_master = np.zeros((nbl_eff, zbins_use, zbins_use))
@@ -786,8 +786,8 @@ if part_sky:
     hp_pcl_GL = np.zeros((nbl_tot, zbins_use, zbins_use))
     hp_pcl_LL = np.zeros((nbl_tot, zbins_use, zbins_use))
     print('Computing pseudo-cls for comparison plots...')
-    for zi in tqdm(range(zbins_use)):
-        for zj in range(zbins_use):
+    for zi in tqdm(range(2)):
+        for zj in range(2):
             # MASTER estimator:
             cl_GG_master[:, zi, zj] = compute_master(f0[zi], f0[zj], w00)[0, :]
             cl_GL_master[:, zi, zj] = compute_master(f0[zi], f2[zj], w02)[0, :]
@@ -934,16 +934,33 @@ if part_sky:
         # cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
         # cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
 
-    cl_tt = cl_GG_4covnmt
-    cl_te = cl_GL_4covnmt
-    cl_ee = cl_LL_4covnmt
-    cl_tb = np.zeros_like(cl_GG_4covnmt)
-    cl_eb = np.zeros_like(cl_GG_4covnmt)
-    cl_bb = np.zeros_like(cl_GG_4covnmt)
+    noise_3x2pt_4d = utils.build_noise(zbins_use, n_probes, sigma_eps2=sigma_eps2,
+                                       ng_shear=n_gal_shear,
+                                       ng_clust=n_gal_clustering,
+                                       EP_or_ED=EP_or_ED)
+    noise_3x2pt_5d = np.zeros((n_probes, n_probes, nbl_4covsb, zbins_use, zbins_use))
+    for probe_A in (0, 1):
+        for probe_B in (0, 1):
+            for ell_idx in range(nbl_4covsb):
+                noise_3x2pt_5d[probe_A, probe_B, ell_idx, :, :] = noise_3x2pt_4d[probe_A, probe_B, ...]
+
+    cl_tt_4covnmt = cl_GG_4covnmt + noise_3x2pt_5d[1, 1, :, :, :]
+    cl_te_4covnmt = cl_GL_4covnmt + noise_3x2pt_5d[1, 0, :, :, :]
+    cl_ee_4covnmt = cl_LL_4covnmt + noise_3x2pt_5d[0, 0, :, :, :]
+    cl_tb_4covnmt = np.zeros_like(cl_tt_4covnmt)
+    cl_eb_4covnmt = np.zeros_like(cl_tt_4covnmt)
+    cl_bb_4covnmt = np.zeros_like(cl_tt_4covnmt)
+    
+    cl_tt_4covsim = cl_GG_unbinned + noise_3x2pt_5d[1, 1, :, :, :]
+    cl_te_4covsim = cl_GL_unbinned + noise_3x2pt_5d[1, 0, :, :, :]
+    cl_ee_4covsim = cl_LL_unbinned + noise_3x2pt_5d[0, 0, :, :, :]
+    cl_tb_4covsim = np.zeros_like(cl_tt_4covsim)
+    cl_eb_4covsim = np.zeros_like(cl_tt_4covsim)
+    cl_bb_4covsim = np.zeros_like(cl_tt_4covsim)
 
     # ! NAMASTER covariance
-    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt, cl_te=cl_te, cl_ee=cl_ee,
-                                         cl_tb=cl_tb, cl_eb=cl_eb, cl_bb=cl_bb,
+    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt, cl_ee=cl_ee_4covnmt,
+                                         cl_tb=cl_tb_4covnmt, cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
                                          zbins=zbins_use,
                                          nbl=nbl_eff,
                                          coupled=cfg['coupled_nmt_cov'],
@@ -970,7 +987,16 @@ if part_sky:
     cl_3x2pt_5d[1, 0, :, :, :] = cl_GL_4covsb
     cl_3x2pt_5d[0, 1, :, :, :] = cl_GL_4covsb.transpose(0, 2, 1)
     cl_3x2pt_5d[1, 1, :, :, :] = cl_GG_4covsb
-    noise_3x2pt_5d = np.zeros_like(cl_3x2pt_5d)
+
+    # noise_3x2pt_4d = utils.build_noise(zbins_use, n_probes, sigma_eps2=sigma_eps2,
+    #                                    ng_shear=n_gal_shear,
+    #                                    ng_clust=n_gal_clustering,
+    #                                    EP_or_ED=EP_or_ED)
+    # noise_3x2pt_5d = np.zeros((n_probes, n_probes, nbl_4covsb, zbins_use, zbins_use))
+    # for probe_A in (0, 1):
+    #     for probe_B in (0, 1):
+    #         for ell_idx in range(nbl_4covsb):
+    #             noise_3x2pt_5d[probe_A, probe_B, ell_idx, :, :] = noise_3x2pt_4d[probe_A, probe_B, ...]
 
     cov_sb_10d = utils.covariance_einsum(cl_3x2pt_5d, noise_3x2pt_5d, fsky,
                                          ells_4covsb, delta_ells_4covsb)
@@ -995,11 +1021,10 @@ if part_sky:
         # plt.xscale('log')
         plt.legend(fontsize=12, frameon=False)
         plt.show()
-
-    sample_cov_name = cfg['sample_cov_name'].format(nreal=nreal, nside=nside,
-                                                    int_survey_area_deg2=int(survey_area_deg2),
-                                                    which_cls=which_cls,
-                                                    coupled_cls=str(coupled_cls))
+    settings_dict = {'nreal': nreal, 'nside': nside, 'int_survey_area_deg2': int(survey_area_deg2),
+                      'which_cls': which_cls, 'coupled_cls': str(coupled_cls), 'use_INKA': str(use_INKA),
+                      'zbins_use': zbins_use}
+    sample_cov_name = cfg['sample_cov_name'].format(**settings_dict)
     # ! SAMPLE COVARIANCE
     if cfg['load_sample_cov']:
         cov_sim_10d = np.load(sample_cov_name)
@@ -1007,19 +1032,16 @@ if part_sky:
     else:
 
         cov_sim_10d, sim_cl_GG, sim_cl_GL, sim_cl_LL = sample_covariance(
-            cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
+            cl_tt_4covsim, cl_ee_4covsim, cl_te_4covsim, cl_bb_4covsim, cl_eb_4covsim, cl_tb_4covsim,
             nbl_eff, zbins_use, mask, nside, nreal, coupled_cls,
             which_cls)
 
         if cfg['save_sample_cov']:
             np.save(sample_cov_name, cov_sim_10d)
         if cfg['save_sim_maps']:
-            np.save(
-                f'../output/sim_cl_GG_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy', sim_cl_GG)
-            np.save(
-                f'../output/sim_cl_GL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy', sim_cl_GL)
-            np.save(
-                f'../output/sim_cl_LL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy', sim_cl_LL)
+            np.save(cfg['sim_cls_name'].format(probe = 'GG', **settings_dict), sim_cl_GG)
+            np.save(cfg['sim_cls_name'].format(probe = 'GL', **settings_dict), sim_cl_GL)
+            np.save(cfg['sim_cls_name'].format(probe = 'LL', **settings_dict), sim_cl_LL)
 
     # # ! BIN COVARIANCE MATRICES IF NEEDED
     # # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
@@ -1210,6 +1232,7 @@ if part_sky:
     ax[0].legend()
     ax[1].legend(ncol=2)
     ax[1].axhspan(-10, 10, facecolor='grey', alpha=0.1)
+    ax[1].axhline(0, color='grey', alpha=0.7, ls='--')
     ax[0].axvline(x=elem_auto_use, color='black', linestyle='--', alpha=.7)
     ax[1].axvline(x=elem_auto_use, color='black', linestyle='--', alpha=.7)
     ax[0].axvline(x=elem_autpluscross_use, color='black', linestyle='--', alpha=.7)
@@ -1222,8 +1245,9 @@ if part_sky:
         ax[0].text(x, ax[0].get_ylim()[1] * 1.05, label, ha='center', va='bottom', fontsize=14)
 
     fig.suptitle(f'Total cov diag\nnreal={nreal}, {int(survey_area_deg2)} deg2, '
-        f'which_pcls={cfg["which_cls"]}\nmask shape={cfg["mask_shape"]}, coupled_cls={coupled_cls}',
-                 y=1.05)
+                 f'which_pcls={cfg["which_cls"]}\nmask shape={cfg["mask_shape"]}, coupled_cls={coupled_cls}'
+                 f'\nuse_INKA {use_INKA}',
+                 y=1.07)
 
     # plt.savefig(f'../output/cov_diag_k{k_diag}_nreal{nreal}_{int(survey_area_deg2)}deg2_whichcls{cfg["which_cls"]}.png', dpi=400)
     plt.show()
@@ -1298,13 +1322,12 @@ if part_sky:
         ax[0].loglog(l_mid, diag_sim, label='abs ' + label.format(code='sim',
                      off_diag=k), ls='--', c=clr[1], marker='.')
 
-
     ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sb_plt), np.diag(cov_nmt_plt)),
                marker='.', label='sb/nmt', c='tab:orange')
     ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sim_plt), np.diag(cov_nmt_plt)),
-       marker='.', label='sim/nmt, k=0', c=clr[1], ls='-')
+               marker='.', label='sim/nmt, k=0', c=clr[1], ls='-')
     ax[1].plot(get_lmid(ells_eff, k=1), utils.percent_diff(np.diag(cov_sim_plt, k=1), np.diag(cov_nmt_plt, k=1)),
-       marker='.', label='sim/nmt, k=1', c=clr[1], ls='--')
+               marker='.', label='sim/nmt, k=1', c=clr[1], ls='--')
 
     ax[1].set_ylabel('% diff cov fsky/part_sky')
     ax[1].set_xlabel(r'$\ell$')
@@ -1364,7 +1387,7 @@ if part_sky:
     fig.suptitle(title)
     plt.tight_layout()
     plt.show()
-    
+
     # ! new: compute chi2
     sim_cl_GG = np.load(
         f'../output/sim_cl_GG_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
@@ -1383,13 +1406,16 @@ if part_sky:
     sim_cl_GL_1d = np.zeros((nreal, nbl_eff * zpairs_cross_use))
     sim_cl_LL_1d = np.zeros((nreal, nbl_eff * zpairs_auto_use))
     for i in range(nreal):
-        sim_cl_GG_1d[i, ...] =  utils.cl_3D_to_1D(sim_cl_3x2pt_6d[i, 1, 1, :, :, :], '_', is_auto_spectrum=True, block_index='ell')
-        sim_cl_GL_1d[i, ...] =  utils.cl_3D_to_1D(sim_cl_3x2pt_6d[i, 1, 0, :, :, :], '_', is_auto_spectrum=False, block_index='ell')
-        sim_cl_LL_1d[i, ...] =  utils.cl_3D_to_1D(sim_cl_3x2pt_6d[i, 0, 0, :, :, :], '_', is_auto_spectrum=True, block_index='ell')
+        sim_cl_GG_1d[i, ...] = utils.cl_3D_to_1D(
+            sim_cl_3x2pt_6d[i, 1, 1, :, :, :], '_', is_auto_spectrum=True, block_index='ell')
+        sim_cl_GL_1d[i, ...] = utils.cl_3D_to_1D(
+            sim_cl_3x2pt_6d[i, 1, 0, :, :, :], '_', is_auto_spectrum=False, block_index='ell')
+        sim_cl_LL_1d[i, ...] = utils.cl_3D_to_1D(
+            sim_cl_3x2pt_6d[i, 0, 0, :, :, :], '_', is_auto_spectrum=True, block_index='ell')
 
     sim_cl_3x2pt = np.concatenate((sim_cl_LL_1d, sim_cl_GL_1d, sim_cl_GG_1d), axis=1)
     sim_cl_3x2pt_mean = np.mean(sim_cl_3x2pt, axis=0)
-    
+
     chi2_sim = []
     chi2_nmt = []
     chi2_sb = []
@@ -1400,28 +1426,53 @@ if part_sky:
         chi2_sim.append((sim_cl_3x2pt[i] - sim_cl_3x2pt_mean) @ cov_sim_2d_inv @ (sim_cl_3x2pt[i] - sim_cl_3x2pt_mean))
         chi2_nmt.append((sim_cl_3x2pt[i] - sim_cl_3x2pt_mean) @ cov_nmt_2d_inv @ (sim_cl_3x2pt[i] - sim_cl_3x2pt_mean))
         chi2_sb.append((sim_cl_3x2pt[i] - sim_cl_3x2pt_mean) @ cov_sb_2d_inv @ (sim_cl_3x2pt[i] - sim_cl_3x2pt_mean))
-        
+
     chi2_sim = np.array(chi2_sim)
     chi2_nmt = np.array(chi2_nmt)
     chi2_sb = np.array(chi2_sb)
     
+    # Define the range of chi-squared values for the theoretical curve
+    dof = sim_cl_3x2pt.shape[1]
+    # chi2_th = np.random.chisquare(df=dof, size=10000)  # nmt chi2 values
+    from scipy.stats import chi2
+    chi2_values = np.linspace(np.min(chi2_sim), np.max(chi2_sim), 1000)
+    chi2_pdf = chi2.pdf(chi2_values, df=dof)
+
+    
+    mean_chi2_sim = np.mean(chi2_sim)
+    mean_chi2_nmt = np.mean(chi2_nmt)
+    mean_chi2_sb = np.mean(chi2_sb)
+    var_chi2_sim = np.var(chi2_sim)
+    var_chi2_nmt = np.var(chi2_nmt)
+    var_chi2_sb = np.var(chi2_sb)
+
     plt.figure()
-    plt.hist(chi2_nmt, bins=70, density=False, label='nmt cov')
-    plt.hist(chi2_sim, bins=70, density=False, label='sim cov')
+    plt.hist(chi2_nmt, bins=70, density=True, histtype='step', label='nmt cov')
+    plt.hist(chi2_sb, bins=70, density=True, histtype='step', label='sb cov')
+    plt.hist(chi2_sim, bins=70, density=True, histtype='step', label='sim cov')
+    plt.plot(chi2_values, chi2_pdf, label=f'Theory $\chi^2$ (dof={dof})', color='red', linestyle='--')
+
+    # plt.axvline(mean_chi2_nmt, color='tab:blue', label=f'mean chi2 nmt = {mean_chi2_nmt:.2f}', ls='--')
+    # plt.axvline(mean_chi2_sb, color='tab:orange', label=f'mean chi2 sb = {mean_chi2_sb:.2f}', ls='--')
+    # plt.axvline(mean_chi2_sim, color='tab:green', label=f'mean chi2 sim = {mean_chi2_sim:.2f}', ls='--')
     plt.xlabel(r'$\chi^2$')
     plt.ylabel('counts')
     plt.legend()
-    plt.show()
     
+    nmt_sim_shift = (mean_chi2_sim - mean_chi2_nmt)/np.sqrt(var_chi2_sim)
+    plt.title(r'$\langle \chi^2_{sim} \rangle - \langle \chi^2_{nmt} \rangle = %.2f \sigma_{sim}$' % nmt_sim_shift + '\n' + 
+            r'$\sigma_{sim} = %.2f$, $\sigma_{nmt}=%.2f$' % (np.sqrt(var_chi2_sim), np.sqrt(var_chi2_nmt)))
+    plt.show()
+
     # now plot the eigenvalues
     eigen_sim = np.linalg.eigvalsh(cov_sim_2d)
     eigen_nmt = np.linalg.eigvalsh(cov_nmt_2d)
     eigen_sb = np.linalg.eigvalsh(cov_sb_2d)
-    
+
     plt.figure()
-    plt.semilogy(eigen_sim[::-1], label='sim cov')
     plt.semilogy(eigen_nmt[::-1], label='nmt cov')
-    plt.semilogy(eigen_sb[::-1], label='sb cov')
+    plt.semilogy(eigen_sb[::-1], label='sb cov', ls='--')
+    plt.semilogy(eigen_sim[::-1], label='sim cov', ls='--')
     plt.xlabel('eigenvalue index')
     plt.ylabel('eigenvalue')
     plt.legend()
