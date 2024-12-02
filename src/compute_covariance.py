@@ -38,7 +38,8 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
                                                    nside=nside, nreal=nreal,
                                                    mask=mask,
                                                    coupled=coupled,
-                                                   which_cls=which_cls)
+                                                   which_cls=which_cls,
+                                                   lmax=bin_obj.lmax)
         sim_cl_GG_ij = simulated_cls_dict['pseudo_cl_tt'][:, 0, :]
         sim_cl_GL_ij = simulated_cls_dict['pseudo_cl_te'][:, 0, :]
         sim_cl_LL_ij = simulated_cls_dict['pseudo_cl_ee'][:, 0, :]
@@ -254,7 +255,7 @@ def cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside):
     return map_T, map_Q, map_U
 
 
-def masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, n_iter=0, lite=True):
+def masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, lmax, n_iter=0, lite=True):
     """
     Create NmtField objects from masked maps.
 
@@ -267,8 +268,8 @@ def masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, n_iter=0, lite=True):
     Returns:
         nmt.NmtField, nmt.NmtField: NmtField objects for the temperature and polarization maps.
     """
-    f0 = nmt.NmtField(mask, [map_T], n_iter=n_iter, lite=lite)
-    f2 = nmt.NmtField(mask, [map_Q, map_U], spin=2, n_iter=n_iter, lite=lite)
+    f0 = nmt.NmtField(mask, [map_T], n_iter=n_iter, lite=lite, lmax=lmax)
+    f2 = nmt.NmtField(mask, [map_Q, map_U], spin=2, n_iter=n_iter, lite=lite, lmax=lmax)
     return f0, f2
 
 
@@ -287,29 +288,10 @@ def compute_master(f_a, f_b, wsp):
     return cl_decoupled
 
 
-def find_ellmin_from_bpw(bpw, ells, threshold):
-
-    # Calculate cumulative weight to find ell_min
-    cumulative_weight = np.cumsum(bpw[0, :, 0, :], axis=-1)
-
-    ell_min = []
-    for i in range(bpw.shape[0]):
-        idx = np.where(cumulative_weight[i] > threshold)[0]
-        if len(idx) > 0:
-            ell_min.append(ells[idx[0]])
-        else:
-            print(f"No index found for band {i} with cumulative weight > {threshold}")
-
-    if ell_min:
-        ell_min = int(np.ceil(np.mean(ell_min)))
-        print(f"Estimated ell_min: {ell_min}")
-    else:
-        print("ell_min array is empty")
-
-    return ell_min
 
 
-def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nreal, nside, mask, coupled, which_cls):
+
+def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nreal, nside, mask, coupled, which_cls, lmax):
 
     # both healpy anafast and nmt.compute_coupled_cell return the coupled cls. Dividing by fsky gives a rough
     # approximation of the true Cls
@@ -353,8 +335,8 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nrea
             # f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
             
             # new
-            f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True) for map_T in corr_maps_gg])
-            f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True) for (map_Q, map_U) in corr_maps_ll])
+            f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True, lmax=lmax) for map_T in corr_maps_gg])
+            f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True, lmax=lmax) for (map_Q, map_U) in corr_maps_ll])
 
             if coupled:
                 # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
@@ -624,12 +606,6 @@ if part_sky:
     nside_from_mask = hp.get_nside(mask)
     assert nside_from_mask == cfg['nside'], 'nside from mask is not consistent with the desired nside in the cfg file'
 
-    # set different possible values for lmax
-    lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
-    lmax_healpy = 3 * nside
-    # to be safe, following https://heracles.readthedocs.io/stable/examples/example.html
-    lmax_healpy_safe = int(1.5 * nside)  # TODO test this
-    lmax = lmax_healpy
 
     # get lmin: quick estimate
     survey_area_rad = np.sum(mask) * hp.nside2pixarea(nside)
@@ -639,13 +615,19 @@ if part_sky:
     # Initialize binning scheme with bandpowers of constant width (ells_per_band multipoles per bin)
     # TODO use lmax_mask instead of nside? Decide which binning scheme is the best
     # ell_values, delta_values, ell_bin_edges = utils.compute_ells(nbl, 0, lmax, recipe='ISTF', output_ell_bin_edges=True)
-    # bin_obj = nmt.NmtBin.from_edges(ell_bin_edges[:-1].astype(int), ell_bin_edges[1:].astype(int), is_Dell=False, f_ell=None)
-    bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
-    # bin_obj = nmt.NmtBin.from_edges(
-    # ell_bin_lower_edges.astype(int),
-    # ell_bin_upper_edges.astype(int), is_Dell=False, f_ell=None)
     # bin_obj = nmt.NmtBin.from_lmax_linear(lmax=lmax, nlb=ells_per_band, is_Dell=False, f_ell=None) # TODO test this
+    # bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
+    bin_obj = nmt.NmtBin.from_edges(
+    ell_bin_lower_edges.astype(int),
+    ell_bin_upper_edges.astype(int), is_Dell=False, f_ell=None)
 
+    # set different possible values for lmax
+    lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
+    lmax_healpy = 3 * nside
+    # to be safe, following https://heracles.readthedocs.io/stable/examples/example.html
+    lmax_healpy_safe = int(1.5 * nside)
+    lmax = bin_obj.lmax + 1
+    
     ells_eff = bin_obj.get_effective_ells()  # get effective ells per bandpower
     ells_tot = np.arange(lmax)
     nbl_eff = len(ells_eff)
@@ -656,14 +638,14 @@ if part_sky:
     lmax_eff = ells_eff_edges[-1]
     ells_bpw = ells_tot[lmin_eff:lmax_eff]
     delta_ells_bpw = np.diff(np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)]))
-    assert np.all(delta_ells_bpw == ells_per_band), 'delta_ell from bpw does not match ells_per_band'
+    # assert np.all(delta_ells_bpw == ells_per_band), 'delta_ell from bpw does not match ells_per_band'
 
     # ! create nmt field from the mask (there will be no maps associated to the fields)
     # TODO maks=None (as in the example) or maps=[mask]? I think None
     start_time = time.perf_counter()
     print('computing coupling coefficients...')
-    f0_mask = nmt.NmtField(mask=mask, maps=None, spin=0, lite=True)
-    f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True)
+    f0_mask = nmt.NmtField(mask=mask, maps=None, spin=0, lite=True, lmax=bin_obj.lmax)
+    f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True, lmax=bin_obj.lmax)
     w00 = nmt.NmtWorkspace()
     w02 = nmt.NmtWorkspace()
     w22 = nmt.NmtWorkspace()
@@ -682,25 +664,23 @@ if part_sky:
     bpw_02 = w02.get_bandpower_windows()
     bpw_22 = w22.get_bandpower_windows()
 
-    if cfg['which_ell_weights'] == 'get_weight_list()':
-        ell_weights = np.array([bin_obj.get_weight_list(ell_idx)
-                                for ell_idx in range(nbl_eff)]).flatten()  # get effective ells per bandpower
-    elif cfg['which_ell_weights'] == 'get_bandpower_windows()':
-        warnings.warn('Using bpw_00 as ell_weights')
-        ell_weights = bpw_00[0, :, 0]
+    # if cfg['which_ell_weights'] == 'get_weight_list()':
+    #     ell_weights = np.array([bin_obj.get_weight_list(ell_idx)
+    #                             for ell_idx in range(nbl_eff)]).flatten()  # get effective ells per bandpower
+    # elif cfg['which_ell_weights'] == 'get_bandpower_windows()':
+    #     warnings.warn('Using bpw_00 as ell_weights')
+    #     ell_weights = bpw_00[0, :, 0]
 
-        # interpolate on ells_bpw
-        # ell_weights = np.zeros((nbl_eff, len(ells_bpw)))
-        # for ell_idx in range(nbl_eff):
-        # ell_weights[ell_idx, :] = np.interp(ells_bpw, ells_tot, _ell_weights[ell_idx, :])
-    else:
-        raise ValueError(f"Invalid value for 'which_ell_weights': {cfg['which_ell_weights']}")
+    #     # interpolate on ells_bpw
+    #     # ell_weights = np.zeros((nbl_eff, len(ells_bpw)))
+    #     # for ell_idx in range(nbl_eff):
+    #     # ell_weights[ell_idx, :] = np.interp(ells_bpw, ells_tot, _ell_weights[ell_idx, :])
+    # else:
+    #     raise ValueError(f"Invalid value for 'which_ell_weights': {cfg['which_ell_weights']}")
 
-    assert bpw_00.shape[1] == bpw_02.shape[1] == bpw_22.shape[1], \
-        "The number of bandpower windows must be the same for all fields"
+    # assert bpw_00.shape[1] == bpw_02.shape[1] == bpw_22.shape[1], \
+    #     "The number of bandpower windows must be the same for all fields"
 
-    # Plotting bandpower windows and ell_min
-    lmin_bpw = find_ellmin_from_bpw(bpw_00, ells=ells_tot, threshold=0.95)
 
     clr = cm.rainbow(np.linspace(0, 1, bpw_00.shape[1]))
     plt.figure(figsize=(10, 6))
@@ -713,7 +693,6 @@ if part_sky:
     for i in range(nbl_eff + 1):
         plt.axvline(ells_eff_edges[i], c='k', ls='--')
 
-    plt.axvline(lmin_bpw, color='r', linestyle='--', label='Estimated ell_min')
     plt.xlabel(r'$\ell$')
     plt.ylabel('Window function')
     plt.title('Bandpower Window Functions')
@@ -723,9 +702,9 @@ if part_sky:
     # ! end get lmin: better estimate
 
     print('lmin_mask:', lmin_mask)
-    print('lmin_from bpw:', lmin_bpw)
     print('lmax_mask:', lmax_mask)
     print('lmax_healpy:', lmax_healpy)
+    print('lmax_bin_obj:',  bin_obj.lmax)
     print('nside:', nside)
     print('fsky after apodization:', fsky)
 
@@ -736,6 +715,8 @@ if part_sky:
     cl_BB_unbinned = np.zeros_like(cl_LL_unbinned)
     cl_TB_unbinned = np.zeros_like(cl_LL_unbinned)
     cl_EB_unbinned = np.zeros_like(cl_LL_unbinned)
+    cl_LB_unbinned = np.zeros_like(cl_LL_unbinned)
+    cl_GB_unbinned = np.zeros_like(cl_LL_unbinned)
 
     cl_GG_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
     cl_GL_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
@@ -769,7 +750,7 @@ if part_sky:
                                           cl_BB=cl_BB_unbinned[:, zi, zi],
                                           cl_TE=cl_GL_unbinned[:, zi, zi],
                                           nside=nside)
-        f0[zi], f2[zi] = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
+        f0[zi], f2[zi] = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, lmax=bin_obj.lmax)
 
     # Create a map(s) from cl(s) to visualize the simulated - masked - maps, just for fun
     zi = 0
@@ -822,8 +803,8 @@ if part_sky:
     #     hp.mollview(corr_maps_ll[i][1], title='U')
 
     # now instantiate the fields
-    f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True) for map_T in corr_maps_gg])
-    f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True) for (map_Q, map_U) in corr_maps_ll])
+    f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True, lmax=bin_obj.lmax) for map_T in corr_maps_gg])
+    f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True, lmax=bin_obj.lmax) for (map_Q, map_U) in corr_maps_ll])
 
     # TODO add noise?
     cl_GG_master = np.zeros((nbl_eff, zbins_use, zbins_use))
@@ -864,9 +845,9 @@ if part_sky:
             hp_pcl_tot = hp.anafast(map1=[_corr_maps_zi[0] * mask, _corr_maps_zi[1] * mask, _corr_maps_zi[2] * mask],
                                     map2=[_corr_maps_zj[0] * mask, _corr_maps_zj[1] * mask, _corr_maps_zj[2] * mask])
             # output is TT, EE, BB, TE, EB, TB
-            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :]
-            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :]
-            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :]
+            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :-1]
+            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :-1]
+            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :-1]
 
     # ! compare results
     block = 'GLGL'
