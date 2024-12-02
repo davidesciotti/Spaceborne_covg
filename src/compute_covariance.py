@@ -16,123 +16,71 @@ import os
 ROOT = os.getenv("ROOT")
 
 
-def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned, 
-                      nbl, zbins, mask, nside, nreal, coupled, which_cls):
+def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
+                      nbl, zbins, mask, nside, nreal, coupled_cls, which_cls):
 
     # TODO use only independent z pairs
-    cov_sim_10d = np.zeros((2, 2, 2, 2, nbl, nbl, zbins, zbins, zbins, zbins))
+    cov_sim_10d = np.zeros((n_probes, n_probes, n_probes, n_probes, nbl, nbl, zbins, zbins, zbins, zbins))
     sim_cl_GG = np.zeros((nreal, nbl, zbins, zbins))
     sim_cl_GL = np.zeros((nreal, nbl, zbins, zbins))
     sim_cl_LL = np.zeros((nreal, nbl, zbins, zbins))
 
-    # 1. ! produce and bin simulated cls for all zbin combinations
-    z_combinations = list(itertools.product(range(zbins), repeat=2))
-    for zi, zj in tqdm(z_combinations):
-        simulated_cls_dict = produce_gaussian_sims(cl_TT=cl_GG_unbinned,
-                                                   cl_EE=cl_LL_unbinned,
-                                                   cl_BB=cl_BB_unbinned,
-                                                   cl_TE=cl_GL_unbinned,
-                                                   cl_EB=cl_EB_unbinned,
-                                                   cl_TB=cl_TB_unbinned,
-                                                   zi=zi, zj=zj,
-                                                   nside=nside, nreal=nreal,
-                                                   mask=mask,
-                                                   coupled=coupled,
-                                                   which_cls=which_cls,
-                                                   lmax=bin_obj.lmax)
-        sim_cl_GG_ij = simulated_cls_dict['pseudo_cl_tt'][:, 0, :]
-        sim_cl_GL_ij = simulated_cls_dict['pseudo_cl_te'][:, 0, :]
-        sim_cl_LL_ij = simulated_cls_dict['pseudo_cl_ee'][:, 0, :]
-        
-        assert sim_cl_GG_ij.shape == sim_cl_GL_ij.shape == sim_cl_LL_ij.shape, 'Simulated cls must have the same shape'
+    # 1. produce correlated maps
+    print(f'Generating {nreal} maps for nside {nside} and computing pseudo-cls with {which_cls}...')
 
-        # bin if needed and store in arrays
-        if sim_cl_GG_ij.shape[1] != nbl:
-            for i in range(nreal):
-                sim_cl_GG[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_GG_ij[i, :])
-                sim_cl_GL[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_GL_ij[i, :])
-                sim_cl_LL[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_LL_ij[i, :])
-        else:
-            sim_cl_GG[:, :, zi, zj] = sim_cl_GG_ij[:, :]
-            sim_cl_GL[:, :, zi, zj] = sim_cl_GL_ij[:, :]
-            sim_cl_LL[:, :, zi, zj] = sim_cl_LL_ij[:, :]
-            
+    cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
+        cl_TT=cl_GG_unbinned,
+        cl_EE=cl_LL_unbinned,
+        cl_BB=cl_BB_unbinned,
+        cl_TE=cl_GL_unbinned,
+        cl_EB=cl_EB_unbinned,
+        cl_TB=cl_TB_unbinned,
+        zbins=zbins,
+        spectra_types=['T', 'E', 'B'])
 
-    z_combinations = list(itertools.product(range(zbins_use), repeat=4))
-    for zi, zj, zk, zl in tqdm(z_combinations):
+    zij_combinations = list(itertools.product(range(zbins), repeat=2))
+    zijkl_combinations = list(itertools.product(range(zbins), repeat=4))
 
-        # if not load_simulated_cls:
+    for i in tqdm(range(nreal)):
 
-        #     print('Producing gaussian simulations...')
-        #     simulated_cls_dict_ij = produce_gaussian_sims(cl_GG_unbinned[:, zi, zj],
-        #                                                   cl_LL_unbinned[:, zi, zj],
-        #                                                   cl_BB_unbinned[:, zi, zj],
-        #                                                   cl_GL_unbinned[:, zi, zj],
-        #                                                   nside=nside, nreal=nreal,
-        #                                                   mask=mask,
-        #                                                   coupled=coupled,
-        #                                                   which_cls=which_cls)
+        # * 1. produce correlated alms
+        corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
+        assert len(corr_alms_tot) == zbins * 3, 'wrong number of alms'
 
-        #     if (zk, zl) == (zi, zj):
-        #         simulated_cls_dict_kl = simulated_cls_dict_ij
-        #     else:
-        #         simulated_cls_dict_kl = produce_gaussian_sims(cl_GG_unbinned[:, zk, zl],
-        #                                                       cl_LL_unbinned[:, zk, zl],
-        #                                                       cl_BB_unbinned[:, zk, zl],
-        #                                                       cl_GL_unbinned[:, zk, zl],
-        #                                                       nside=nside, nreal=nreal,
-        #                                                       mask=mask,
-        #                                                       coupled=coupled,
-        #                                                       which_cls=which_cls)
+        # extract alm for TT, EE, BB
+        corr_alms = corr_alms_tot[::3]
+        corr_Elms_Blms = list(zip(corr_alms_tot[1::3], corr_alms_tot[2::3]))
 
-        #     print('...done in {:.2f}s'.format(time.perf_counter() - start_time))
-        #     np.save(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'
-        #             f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}_INKA{use_INKA}_zi{zi}zj{zj}.npy',
-        #             simulated_cls_dict_ij, allow_pickle=True)
-        #     np.save(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'
-        #             f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}_INKA{use_INKA}_zk{zk}zl{zl}.npy',
-        #             simulated_cls_dict_ij, allow_pickle=True)
+        # compute correlated maps
+        corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms]
+        corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1) for (Elm, Blm) in corr_Elms_Blms]
 
-        # elif load_simulated_cls:
+        # * 2. compute and bin simulated cls for all zbin combinations, using input correlated maps
+        for zi, zj in zij_combinations:
+            sim_cl_GG_ij, sim_cl_GL_ij, sim_cl_LL_ij = pcls_from_maps(corr_maps_gg=corr_maps_gg,
+                                                                      corr_maps_ll=corr_maps_ll,
+                                                                      zi=zi,
+                                                                      zj=zj,
+                                                                      mask=mask,
+                                                                      coupled_cls=coupled_cls,
+                                                                      which_cls=which_cls)
 
-        #     simulated_cls_dict_ij = np.load(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'
-        #                                     f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}_'
-        #                                     f'INKA{use_INKA}_zi{zi}zj{zj}.npy',
-        #                                     allow_pickle=True).item()
-        #     simulated_cls_dict_ij = np.load(f'../output/simulated_cls_dict_nreal{nreal}_{survey_area_deg2:.1f}deg2'
-        #                                     f'_nside{nside}_which_cls{cfg["which_cls"]}_coupled{coupled}_'
-        #                                     f'INKA{use_INKA}_zk{zk}zl{zl}.npy',
-        #                                     allow_pickle=True).item()
+            assert sim_cl_GG_ij.shape == sim_cl_GL_ij.shape == sim_cl_LL_ij.shape, 'Simulated cls must have the same shape'
 
-        # sim_cl_GG_ij = simulated_cls_dict_ij['pseudo_cl_tt'][:, 0, :]
-        # sim_cl_GL_ij = simulated_cls_dict_ij['pseudo_cl_te'][:, 0, :]
-        # sim_cl_LL_ij = simulated_cls_dict_ij['pseudo_cl_ee'][:, 0, :]
-        # sim_cl_GG_kl = simulated_cls_dict_kl['pseudo_cl_tt'][:, 0, :]
-        # sim_cl_GL_kl = simulated_cls_dict_kl['pseudo_cl_te'][:, 0, :]
-        # sim_cl_LL_kl = simulated_cls_dict_kl['pseudo_cl_ee'][:, 0, :]
-        # sim_cl_list_ij = [sim_cl_GG_ij, sim_cl_GL_ij, sim_cl_LL_ij]
-        # sim_cl_list_kl = [sim_cl_GG_kl, sim_cl_GL_kl, sim_cl_LL_kl]
+            if len(sim_cl_GG_ij) != nbl:
+                sim_cl_GG[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_GG_ij)
+                sim_cl_GL[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_GL_ij)
+                sim_cl_LL[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_LL_ij)
+            else:
+                sim_cl_GG[i, :, zi, zj] = sim_cl_GG_ij
+                sim_cl_GL[i, :, zi, zj] = sim_cl_GL_ij
+                sim_cl_LL[i, :, zi, zj] = sim_cl_LL_ij
 
-        # # ! bin *before* computing the covariance
-        # # TODO check whether binning the covariance or the cls gives similar (same?) results
-        # for idx, sim_cls in enumerate(sim_cl_list_ij):
-        #     if sim_cls.shape[1] != nbl:
-        #         print(f'Binning simulated cls into bandpowers for sim_cls[{idx}]...')
-        #         bpw_sim_cls = np.zeros((nreal, nbl))
-        #         for i in range(nreal):
-        #             bpw_sim_cls[i, :] = bin_obj.bin_cell(sim_cls[i, :])
-        #         sim_cl_list_ij[idx] = bpw_sim_cls  # Update the list with the binned values
-
-        # for idx, sim_cls in enumerate(sim_cl_list_kl):
-        #     if sim_cls.shape[1] != nbl:
-        #         print(f'Binning simulated cls into bandpowers for sim_cls[{idx}]...')
-        #         bpw_sim_cls = np.zeros((nreal, nbl))
-        #         for i in range(nreal):
-        #             bpw_sim_cls[i, :] = bin_obj.bin_cell(sim_cls[i, :])
-        #         sim_cl_list_kl[idx] = bpw_sim_cls  # Update the list with the binned values
+    # * 3. compute sample covariance
+    for zi, zj, zk, zl in tqdm(zijkl_combinations):
 
         # ! compute the sample covariance
-        # TODO this is not the most efficient way of doing this, you could also cut the mixed cov terms
+        # you could also cut the mixed cov terms, but for cross-redshifts it becomes a bit tricky
         kw = dict(rowvar=False, bias=False)
         cov_sim_10d[0, 0, 0, 0, :, :, zi, zj, zk, zl] = np.cov(
             sim_cl_LL[:, :, zi, zj], sim_cl_LL[:, :, zk, zl], **kw)[:nbl, nbl:]
@@ -301,22 +249,22 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nrea
     pseudo_cl_te_list = []
     pseudo_cl_ee_list = []
 
-    print(f'Generating {nreal} maps for nside {nside} and computing cls with {which_cls}...')
+    print(f'Generating {nreal} maps for nside {nside}...')
 
-    for _ in tqdm(range(nreal)):
-
-        # old
-        # map_T, map_Q, map_U = cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside)
-        
-        # new
-        cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
+    cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
         cl_TT=cl_TT,
         cl_EE=cl_EE,
         cl_BB=cl_BB,
         cl_TE=cl_TE,
         cl_EB=cl_EB,
         cl_TB=cl_TB,
-        zbins=zbins_use, spectra_types=['T', 'E', 'B'])
+        zbins=zbins_use,
+        spectra_types=['T', 'E', 'B'])
+
+    corr_maps_gg_list = []
+    corr_maps_ll_list = []
+
+    for _ in tqdm(range(nreal)):
 
         corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
         assert len(corr_alms_tot) == zbins_use * 3, 'wrong number of alms'
@@ -329,66 +277,69 @@ def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nrea
         corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms]
         corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1) for (Elm, Blm) in corr_Elms_Blms]
 
-        if which_cls == 'namaster':
-            
-            # old
-            # f0, f2 = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
-            
-            # new
-            f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True, lmax=lmax) for map_T in corr_maps_gg])
-            f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True, lmax=lmax) for (map_Q, map_U) in corr_maps_ll])
+        corr_maps_gg_list.append(corr_maps_gg)
+        corr_maps_ll_list.append(corr_maps_ll)
 
-            if coupled:
-                # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
-                pseudo_cl_tt = nmt.compute_coupled_cell(f0[zi], f0[zj])[0] / correction_factor
-                pseudo_cl_te = nmt.compute_coupled_cell(f0[zi], f2[zj])[0] / correction_factor
-                pseudo_cl_ee = nmt.compute_coupled_cell(f2[zi], f2[zj])[0] / correction_factor
-            else:
-                # best estimator for the true Cls
-                pseudo_cl_tt = compute_master(f0[zi], f0[zj], w00)
-                pseudo_cl_te = compute_master(f0[zi], f2[zj], w02)
-                pseudo_cl_ee = compute_master(f2[zi], f2[zj], w22)
+    return corr_maps_gg_list, corr_maps_ll_list
 
-        elif which_cls == 'healpy':
-            
-            _corr_maps_zi = list(itertools.chain([corr_maps_gg[zi]], corr_maps_ll[zi]))
-            _corr_maps_zj = list(itertools.chain([corr_maps_gg[zj]], corr_maps_ll[zj]))
-            # 2. remove monopole
-            _corr_maps_zi = [hp.remove_monopole(_corr_maps_zi[spec_ix]) for spec_ix in range(3)]
-            _corr_maps_zj = [hp.remove_monopole(_corr_maps_zj[spec_ix]) for spec_ix in range(3)]
-            # 3. compute cls for each bin
-            hp_pcl_tot = hp.anafast(map1=[_corr_maps_zi[0] * mask, _corr_maps_zi[1] * mask, _corr_maps_zi[2] * mask],
-                                    map2=[_corr_maps_zj[0] * mask, _corr_maps_zj[1] * mask, _corr_maps_zj[2] * mask])
-            # output is TT, EE, BB, TE, EB, TB
-            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :]
-            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :]
-            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :]
 
-            map_T = hp.remove_monopole(map_T)
-            map_Q = hp.remove_monopole(map_Q)
-            map_U = hp.remove_monopole(map_U)
+def pcls_from_maps(corr_maps_gg, corr_maps_ll, zi, zj, mask, coupled_cls, which_cls):
 
+    # both healpy anafast and nmt.compute_coupled_cell return the coupled cls. Dividing by fsky gives a rough
+    # approximation of the true Cls
+    correction_factor = 1. if coupled_cls else fsky
+
+    if which_cls == 'namaster':
+
+        f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True)
+                       for map_T in corr_maps_gg])
+        f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True)
+                       for (map_Q, map_U) in corr_maps_ll])
+
+        if coupled_cls:  # ! TODO fix this!!
             # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
-            pseudo_cl_hp_tot = hp.anafast([map_T * mask, map_Q * mask, map_U * mask])
-            pseudo_cl_tt = pseudo_cl_hp_tot[0, :] / correction_factor
-            pseudo_cl_ee = pseudo_cl_hp_tot[1, :] / correction_factor
-            pseudo_cl_te = pseudo_cl_hp_tot[3, :] / correction_factor
-
+            pseudo_cl_tt = nmt.compute_coupled_cell(f0[zi], f0[zj])[0] / correction_factor
+            pseudo_cl_te = nmt.compute_coupled_cell(f0[zi], f2[zj])[0] / correction_factor
+            pseudo_cl_ee = nmt.compute_coupled_cell(f2[zi], f2[zj])[0] / correction_factor
         else:
-            raise ValueError('which_cls must be namaster or healpy')
+            # best estimator for the true Cls
+            pseudo_cl_tt = compute_master(f0[zi], f0[zj], w00)[0, :]
+            pseudo_cl_te = compute_master(f0[zi], f2[zj], w02)[0, :]
+            pseudo_cl_ee = compute_master(f2[zi], f2[zj], w22)[0, :]
 
-        pseudo_cl_tt_list.append(pseudo_cl_tt)
-        pseudo_cl_te_list.append(pseudo_cl_te)
-        pseudo_cl_ee_list.append(pseudo_cl_ee)
+    elif which_cls == 'healpy':
 
-    sim_cls_dict = {
-        'pseudo_cl_tt': np.array(pseudo_cl_tt_list),
-        'pseudo_cl_te': np.array(pseudo_cl_te_list),
-        'pseudo_cl_ee': np.array(pseudo_cl_ee_list),
-    }
-    print('...done')
+        _corr_maps_zi = list(itertools.chain([corr_maps_gg[zi]], corr_maps_ll[zi]))
+        _corr_maps_zj = list(itertools.chain([corr_maps_gg[zj]], corr_maps_ll[zj]))
+        # 2. remove monopole
+        _corr_maps_zi = [hp.remove_monopole(_corr_maps_zi[spec_ix]) for spec_ix in range(3)]
+        _corr_maps_zj = [hp.remove_monopole(_corr_maps_zj[spec_ix]) for spec_ix in range(3)]
+        # 3. compute cls for each bin
+        hp_pcl_tot = hp.anafast(map1=[_corr_maps_zi[0] * mask, _corr_maps_zi[1] * mask, _corr_maps_zi[2] * mask],
+                                map2=[_corr_maps_zj[0] * mask, _corr_maps_zj[1] * mask, _corr_maps_zj[2] * mask])
+        # output is TT, EE, BB, TE, EB, TB
+        # hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :]
+        # hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :]
+        # hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :]
 
-    return sim_cls_dict
+        # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
+        pseudo_cl_tt = hp_pcl_tot[0, :]
+        pseudo_cl_ee = hp_pcl_tot[1, :]
+        pseudo_cl_bb = hp_pcl_tot[2, :]
+        pseudo_cl_te = hp_pcl_tot[3, :]
+        pseudo_cl_eb = hp_pcl_tot[4, :]
+        pseudo_cl_tb = hp_pcl_tot[5, :]
+        pseudo_cl_be = pseudo_cl_eb  # ! warning!!
+        if not coupled_cls:
+
+            pseudo_cl_tt = w00.decouple_cell(pseudo_cl_tt[None, :])[0, :]
+            pseudo_cl_ee = w22.decouple_cell(np.vstack((pseudo_cl_ee, pseudo_cl_eb, pseudo_cl_be, pseudo_cl_bb)))[0, :]
+            pseudo_cl_te = w02.decouple_cell(np.vstack((pseudo_cl_te, pseudo_cl_tb)))[0, :]
+
+    else:
+        raise ValueError('which_cls must be namaster or healpy')
+
+    return np.array(pseudo_cl_tt), np.array(pseudo_cl_te), np.array(pseudo_cl_ee)
 
 
 def sample_cov_nmt(zi, probe):
@@ -566,23 +517,26 @@ if part_sky:
     nside = cfg['nside']
     nreal = cfg['nreal']
     zbins_use = cfg['zbins_use']
-    coupled = cfg['coupled']
+    coupled_cls = cfg['coupled_cls']
     use_INKA = cfg['use_INKA']
+    which_cls = cfg['which_cls']
 
-    coupled_label = 'coupled' if coupled else 'uncoupled'
+    coupled_cls_label = 'coupled_cls' if coupled_cls else 'uncoupled_cls'
 
     # read or generate mask
     if cfg['read_mask']:
         if mask_path.endswith('.fits'):
             mask = hp.read_map(mask_path)
-            dr1_date = 9191.0
-            mask = np.where(np.logical_and(mask <= dr1_date, mask >= 0.), 1., 0,)
+            mask = np.where(np.logical_and(mask <= utils.DR1_DATE, mask >= 0.), 1., 0,)
         elif mask_path.endswith('.npy'):
             mask = np.load(mask_path)
         mask = hp.ud_grade(mask, nside_out=nside)
 
     else:
-        mask = utils.generate_polar_cap(area_deg2=survey_area_deg2, nside=cfg['nside'])
+        # mask = utils.generate_polar_cap(area_deg2=survey_area_deg2, nside=cfg['nside'])
+        mask = utils.generate_survey_mask(area_deg2=survey_area_deg2,
+                                          nside=cfg['nside'],
+                                          shape=cfg['mask_shape'])
 
     fsky = np.mean(mask**2)
     survey_area_deg2 = fsky * utils.DEG2_IN_SPHERE
@@ -591,7 +545,7 @@ if part_sky:
 
     # apodize
     hp.mollview(mask, title='before apodization', cmap='inferno_r')
-    if cfg['apodize_mask'] and int(survey_area_deg2) != 41252:
+    if cfg['apodize_mask'] and int(survey_area_deg2) != int(utils.DEG2_IN_SPHERE):
         mask = nmt.mask_apodization(mask, aposize=cfg['aposize'], apotype="Smooth")
         hp.mollview(mask, title='after apodization', cmap='inferno_r')
 
@@ -780,8 +734,8 @@ if part_sky:
         cl_EE=cl_LL_unbinned,
         cl_BB=cl_BB_unbinned,
         cl_TE=cl_GL_unbinned,
-        cl_EB=cl_LB_unbinned,
-        cl_TB=cl_GB_unbinned,
+        cl_EB=cl_EB_unbinned,
+        cl_TB=cl_TB_unbinned,
         zbins=zbins_use, spectra_types=['T', 'E', 'B'])
 
     corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
@@ -819,7 +773,7 @@ if part_sky:
     hp_pcl_GG = np.zeros((nbl_tot, zbins_use, zbins_use))
     hp_pcl_GL = np.zeros((nbl_tot, zbins_use, zbins_use))
     hp_pcl_LL = np.zeros((nbl_tot, zbins_use, zbins_use))
-    print('Computing pseudo-cls...')
+    print('Computing pseudo-cls for comparison plots...')
     for zi in tqdm(range(zbins_use)):
         for zj in range(zbins_use):
             # MASTER estimator:
@@ -976,8 +930,16 @@ if part_sky:
     cl_bb = np.zeros_like(cl_GG_4covnmt)
 
     # ! NAMASTER covariance
-    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-                                         coupled, cw, w00, w02, w22, nbl_4covnmt, False)
+    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt, cl_te=cl_te, cl_ee=cl_ee,
+                                         cl_tb=cl_tb, cl_eb=cl_eb, cl_bb=cl_bb,
+                                         zbins=zbins_use,
+                                         nbl=nbl_eff,
+                                         coupled=cfg['coupled_nmt_cov'],
+                                         cw=cw,
+                                         w00=w00,
+                                         w02=w02,
+                                         w22=w22,
+                                         compute_all_blocks=cfg['compute_all_blocks'])
     # cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
     #                                            coupled, cw, w00, w02, w22, nbl_4covnmt)
 
@@ -1002,7 +964,6 @@ if part_sky:
                                          ells_4covsb, delta_ells_4covsb)
     bin_cov_sb_10d = np.zeros((n_probes, n_probes, n_probes, n_probes, nbl_eff,
                                nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
-    
 
     # ! SAMPLE COVARIANCE - FROM NAMASTER DOCS
     if cfg['compute_namaster_sims']:
@@ -1023,11 +984,30 @@ if part_sky:
         plt.legend(fontsize=12, frameon=False)
         plt.show()
 
+    sample_cov_name = cfg['sample_cov_name'].format(nreal=nreal, nside=nside,
+                                                    int_survey_area_deg2=int(survey_area_deg2),
+                                                    which_cls=which_cls,
+                                                    coupled_cls=str(coupled_cls))
     # ! SAMPLE COVARIANCE
-    cov_sim_10d, sim_cl_GG, sim_cl_GL, sim_cl_LL = sample_covariance(
-        cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
-        nbl_eff, zbins_use, mask, nside, nreal, coupled,
-        cfg['which_cls'])
+    if cfg['load_sample_cov']:
+        cov_sim_10d = np.load(sample_cov_name)
+
+    else:
+
+        cov_sim_10d, sim_cl_GG, sim_cl_GL, sim_cl_LL = sample_covariance(
+            cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
+            nbl_eff, zbins_use, mask, nside, nreal, coupled_cls,
+            which_cls)
+
+        if cfg['save_sample_cov']:
+            np.save(sample_cov_name, cov_sim_10d)
+        if cfg['save_sim_maps']:
+            np.save(
+                f'../output/sim_cl_GG_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy', sim_cl_GG)
+            np.save(
+                f'../output/sim_cl_GL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy', sim_cl_GL)
+            np.save(
+                f'../output/sim_cl_LL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy', sim_cl_LL)
 
     # # ! BIN COVARIANCE MATRICES IF NEEDED
     # # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
@@ -1054,7 +1034,7 @@ if part_sky:
                                         ells_in=ells_tot, ells_out=ells_eff,
                                         ells_out_edges=ells_eff_edges, weights=None,
                                         which_binning='mean')
-                    
+
             if cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
                 print(f'Binning sample {block_name} covariance')
                 cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
@@ -1097,22 +1077,22 @@ if part_sky:
             utils.compare_arrays(cov_sb_4d[ell_idx, ell_idx, :, :], cov_nmt_4d[ell_idx, ell_idx, :, :])
 
     # ! check symmetry of different blocks in ell1, ell2
-    print('checking symmetry of ell1xell1 covariance sub-blocks')
-    for a, b, c, d in tqdm(z_combinations):
-        for zi, zj, zk, zl in z_combinations:
+    # print('checking symmetry of ell1xell1 covariance sub-blocks')
+    # for a, b, c, d in tqdm(z_combinations):
+    #     for zi, zj, zk, zl in z_combinations:
 
-            cov_block = cov_nmt_10d[a, b, c, d, :, :, zi, zj, zk, zl]
-            try:
-                np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
-            except AssertionError:
-                print(f'NMT cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
-                # utils.matshow(utils.percent_diff(cov_block, cov_block.T), log=False, abs_val=True, threshold=1)
+    #         cov_block = cov_nmt_10d[a, b, c, d, :, :, zi, zj, zk, zl]
+    #         try:
+    #             np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
+    #         except AssertionError:
+    #             print(f'NMT cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
+    #             # utils.matshow(utils.percent_diff(cov_block, cov_block.T), log=False, abs_val=True, threshold=1)
 
-            cov_block = cov_sb_10d[a, b, c, d, :, :, zi, zj, zk, zl]
-            try:
-                np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
-            except AssertionError:
-                print(f'SB cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
+    #         cov_block = cov_sb_10d[a, b, c, d, :, :, zi, zj, zk, zl]
+    #         try:
+    #             np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
+    #         except AssertionError:
+    #             print(f'SB cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
 
     # ! compare different blocks individually
     cov_LLLL_nmt_2d = cov_nmt_2d[:elem_auto_use, :elem_auto_use]
@@ -1148,12 +1128,14 @@ if part_sky:
                          'cov_GGGG_nmt_2d.T', abs_val=True, log_array=True, log_diff=True)
 
     # and the diagonals of the diagonal blocks
-    np.testing.assert_allclose(np.diag(cov_LLLL_nmt_2d), np.diag(cov_LLLL_sb_2d), atol=0, rtol=1e-3)
-    np.testing.assert_allclose(np.diag(cov_GLGL_nmt_2d), np.diag(cov_GLGL_sb_2d), atol=0, rtol=1e-3)
-    np.testing.assert_allclose(np.diag(cov_GGGG_nmt_2d), np.diag(cov_GGGG_sb_2d), atol=0, rtol=1e-3)
+    if int(fsky) == 1:
+        np.testing.assert_allclose(np.diag(cov_LLLL_nmt_2d), np.diag(cov_LLLL_sb_2d), atol=0, rtol=1e-3)
+        np.testing.assert_allclose(np.diag(cov_GLGL_nmt_2d), np.diag(cov_GLGL_sb_2d), atol=0, rtol=1e-3)
+        np.testing.assert_allclose(np.diag(cov_GGGG_nmt_2d), np.diag(cov_GGGG_sb_2d), atol=0, rtol=1e-3)
 
     # check symmetry in AB, CD (I manually computed the GLGG block for this purpose)
     np.testing.assert_allclose(cov_GLGG_nmt_2d, cov_GGGL_nmt_2d.T, atol=0, rtol=1e-3)
+    np.testing.assert_allclose(cov_nmt_2d, cov_nmt_2d.T, atol=0, rtol=1e-3)
 
     # check all blocks
     kw = dict(abs_val=True, log_array=True, log_diff=False, plot_diff_threshold=1)
@@ -1164,47 +1146,39 @@ if part_sky:
     utils.compare_arrays(cov_GGGL_nmt_2d, cov_GGGL_sb_2d, 'cov_GGGL_nmt_2d', 'cov_GGGL_sb_2d', **kw)
     utils.compare_arrays(cov_GLLL_nmt_2d, cov_GLLL_sb_2d, 'cov_GLLL_nmt_2d', 'cov_GLLL_sb_2d', **kw)
     utils.compare_arrays(cov_nmt_2d, cov_sb_2d, 'cov_nmt_2d', 'cov_sb_2d', **kw)
-    utils.compare_arrays(cov_nmt_2d, cov_sim_2d, 'cov_nmt_2d', 'cov_sim_2d', **kw)
-    utils.compare_arrays(cov_nmt_2d, cov_nmt_2d.T, 'cov_nmt_2d', 'cov_nmt_2d.T', **kw)
-    
+    utils.compare_arrays(cov_nmt_2d, cov_sim_2d, 'cov_nmt_2d', 'cov_sim_2d', abs_val=True, log_array=True,
+                         log_diff=True, plot_diff_threshold=1)
 
     # ! check inversion of different blocks and total 2d covs
     print('Testing inversion of the covariance blocks...')
-    for probe_idx in probe_idxs:
-        block_name = \
-            probename_dict_inv[str(probe_idxs[0])], probename_dict_inv[str(probe_idxs[1])], \
-            probename_dict_inv[str(probe_idxs[2])], probename_dict_inv[str(probe_idxs[3])]
-        block_name = ''.join(block_name)
+    for cov_block, bloc_name in zip(
+        (cov_LLLL_nmt_2d, cov_GLGL_nmt_2d, cov_GGGG_nmt_2d),
+            ('cov_LLLL_nmt_2d', 'cov_GLGL_nmt_2d', 'cov_GGGG_nmt_2d')):
         try:
-            covar_inv = np.linalg.inv(cov_nmt_10d[probe_idxs])
-            np.linalg.cholesky(cov_nmt_10d[probe_idxs])
-            print(f'nmt block {block_name} is invertible!')
+            covar_inv = np.linalg.inv(cov_block)
+            print(f'Numpy inversion performed for {bloc_name} ✅')
         except np.linalg.LinAlgError as err:
-            print(f'nmt block {block_name} is not invertible: {err}')
+            print(f'Numpy inversion failed for {bloc_name}: {err} ❌')
+        try:
+            np.linalg.cholesky(cov_block)
+            print(f'Cholesky decomposition performed for {bloc_name} ✅')
+        except np.linalg.LinAlgError as err:
+            print(f'Cholesky decomposition failed for {bloc_name}: {err} ❌')
 
     print('Testing inversion of total covariance...')
     for cov, cov_name in zip((cov_sb_2d, cov_nmt_2d, cov_sim_2d), ('sb', 'nmt', 'sim')):
         try:
             covar_inv = np.linalg.inv(cov)
-            print(f'Numpy inversion performed for {cov_name}')
+            print(f'Numpy inversion performed for {cov_name} ✅')
         except np.linalg.LinAlgError as err:
-            print(f'Numpy inversion failed for {cov_name}: {err}')
+            print(f'Numpy inversion failed for {cov_name}: {err} ❌')
         try:
             np.linalg.cholesky(cov)
-            print(f'Cholesky decomposition performed for {cov_name}')
+            print(f'Cholesky decomposition performed for {cov_name} ✅')
         except np.linalg.LinAlgError as err:
-            print(f'Cholesky decomposition failed for {cov_name}: {err}')
+            print(f'Cholesky decomposition failed for {cov_name}: {err} ❌')
 
     # ! PLOTS
-    zi, zj, zk, zl = 1, 1, 0, 1
-    block = 'GLGL'
-
-    probe_idxs = \
-        probename_dict[block[0]], probename_dict[block[1]], \
-        probename_dict[block[2]], probename_dict[block[3]]
-    cov_nmt_plt = cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl]
-    cov_sb_plt = bin_cov_sb_10d[probe_idxs][:, :, zi, zj, zk, zl]
-    cov_sim_plt = cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl]
 
     # ! plot main diagonal of full 2d covariance
     k_diag = 0
@@ -1214,44 +1188,71 @@ if part_sky:
     fig, ax = plt.subplots(2, 1, sharex=True,
                            gridspec_kw={'wspace': 0, 'hspace': 0, 'height_ratios': [2, 1]})
     ax[0].semilogy(diag_nmt, label='nmt')
-    ax[0].semilogy(diag_sb, ls='--', label='sb')
-    ax[0].semilogy(diag_sim, ls='--', label='sim')
-    ax[1].plot(utils.percent_diff(diag_nmt, diag_sb), label='nmt/sb [%]')
-    ax[1].plot(utils.percent_diff(diag_nmt, diag_sim), label='nmt/sim [%]')
-    ax[1].set_xlabel('total cov idx')
-    ax[0].set_ylabel(f'diag total cov, k={k_diag}')
-    ax[1].set_ylabel('nmt/sb [%]')
+    ax[0].semilogy(diag_sb, ls='--', label='sb', c='tab:orange')
+    ax[0].semilogy(diag_sim, ls='--', label='sim', c='tab:green')
+    ax[1].plot(utils.percent_diff(diag_sb, diag_nmt), label='nmt/sb', c='tab:orange')
+    ax[1].plot(utils.percent_diff(diag_sim, diag_nmt), label='nmt/sim', c='tab:green')
+    ax[1].set_xlabel('total cov diag idx')
+    ax[0].set_ylabel(f'total cov diag, k={k_diag}')
+    ax[1].set_ylabel('diff [%]')
     ax[0].legend()
-    fig.suptitle('Total cov diag: LL - GL - GG')
+    ax[1].legend(ncol=2)
+    ax[1].axhspan(-10, 10, facecolor='grey', alpha=0.1)
+    ax[0].axvline(x=elem_auto_use, color='black', linestyle='--', alpha=.7)
+    ax[1].axvline(x=elem_auto_use, color='black', linestyle='--', alpha=.7)
+    ax[0].axvline(x=elem_autpluscross_use, color='black', linestyle='--', alpha=.7)
+    ax[1].axvline(x=elem_autpluscross_use, color='black', linestyle='--', alpha=.7)
+
+    x_coords = [elem_auto_use / 2, (elem_autpluscross_use - elem_auto_use) / 2 +
+                elem_auto_use, elem_auto_use / 2 + elem_autpluscross_use]
+    labels = ['LL', 'GL', 'GG']
+    for x, label in zip(x_coords, labels):
+        ax[0].text(x, ax[0].get_ylim()[1] * 1.05, label, ha='center', va='bottom', fontsize=14)
+
+    fig.suptitle(f'Total cov diag\nnreal={nreal}, {int(survey_area_deg2)} deg2, '
+        f'which_pcls={cfg["which_cls"]}\nmask shape={cfg["mask_shape"]}, coupled_cls={coupled_cls}',
+                 y=1.05)
+
+    # plt.savefig(f'../output/cov_diag_k{k_diag}_nreal{nreal}_{int(survey_area_deg2)}deg2_whichcls{cfg["which_cls"]}.png', dpi=400)
+    plt.show()
 
     # ! PLOT SIMS for a quick check against theoy cls
-    # TODO add kl?
-    if block == 'GGGG':
-        cl_plt = cl_GG_unbinned[:, zi, zj]
-        sim_cls_plt = sim_cl_GG[:, :, zi, zj]
-    elif block == 'GLGL':
-        cl_plt = cl_GL_unbinned[:, zi, zj]
-        sim_cls_plt = sim_cl_GL[:, :, zi, zj]
-    elif block == 'LLLL':
-        cl_plt = cl_LL_unbinned[:, zi, zj]
-        sim_cls_plt = sim_cl_LL[:, :, zi, zj]
+    # TODO this can be skipped if the simulated cls are too cumbersome to load/save
+    # if block == 'GGGG':
+    #     cl_plt = cl_GG_unbinned[:, zi, zj]
+    #     sim_cls_plt = sim_cl_GG[:, :, zi, zj]
+    # elif block == 'GLGL':
+    #     cl_plt = cl_GL_unbinned[:, zi, zj]
+    #     sim_cls_plt = sim_cl_GL[:, :, zi, zj]
+    # elif block == 'LLLL':
+    #     cl_plt = cl_LL_unbinned[:, zi, zj]
+    #     sim_cls_plt = sim_cl_LL[:, :, zi, zj]
 
-    plt.figure()
-    count = 0
-    for i in range(nreal)[:100:5]:
-        plt.semilogy(ells_eff, sim_cls_plt[i, :], label=f'simulated {coupled_label} cls' if count == 0 else '',
-                     marker='.')
-        count += 1
-    plt.loglog(cl_plt, label='theory cls', c='tab:orange')
-    plt.loglog(cl_plt * fsky, label='theory cls*fsky', c='k', ls='--')
-    plt.axvline(lmax_healpy_safe, c='k', ls='--', label='1.5 * nside')
-    plt.legend()
-    plt.xlabel(r'$\ell$')
-    plt.ylabel(r'$C_\ell$')
-    plt.tight_layout()
+    # plt.figure()
+    # count = 0
+    # for i in range(nreal)[:100:5]:
+    #     plt.semilogy(ells_eff, sim_cls_plt[i, :], label=f'simulated {coupled_label} cls' if count == 0 else '',
+    #                  marker='.')
+    #     count += 1
+    # plt.loglog(cl_plt, label='theory cls', c='tab:orange')
+    # plt.loglog(cl_plt * fsky, label='theory cls*fsky', c='k', ls='--')
+    # plt.axvline(lmax_healpy_safe, c='k', ls='--', label='1.5 * nside')
+    # plt.legend()
+    # plt.xlabel(r'$\ell$')
+    # plt.ylabel(r'$C_\ell$')
+    # plt.tight_layout()
 
-    # ! PLOT DIAGONAL,
+    # ! PLOT SINGLE PROBE AND zijkl BLOCK
     # no delta_ell if you're using the pseudo-cls in the gaussian_simulations func!!
+    zi, zj, zk, zl = 1, 0, 1, 1
+    block = 'GLGL'
+
+    probe_idxs = \
+        probename_dict[block[0]], probename_dict[block[1]], \
+        probename_dict[block[2]], probename_dict[block[3]]
+    cov_nmt_plt = cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl]
+    cov_sb_plt = bin_cov_sb_10d[probe_idxs][:, :, zi, zj, zk, zl]
+    cov_sim_plt = cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl]
 
     clr = cm.plasma(np.linspace(0, 1, 5))
     label = r'cov_{code:s}, $\ell^\prime=\ell+{off_diag:d}$'
@@ -1285,12 +1286,13 @@ if part_sky:
         ax[0].loglog(l_mid, diag_sim, label='abs ' + label.format(code='sim',
                      off_diag=k), ls='--', c=clr[1], marker='.')
 
+
     ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sb_plt), np.diag(cov_nmt_plt)),
                marker='.', label='sb/nmt', c='tab:orange')
-    # ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sim_plt), np.diag(cov_nmt_plt)),
-    #    marker='.', label='sim/nmt', c=clr[0], ls='--')
-    # ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sims_nmt), np.diag(cov_nmt)),
-    #    marker='.', label='sims_nmt/nmt', c=clr[0], ls=':')
+    ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sim_plt), np.diag(cov_nmt_plt)),
+       marker='.', label='sim/nmt, k=0', c=clr[1], ls='-')
+    ax[1].plot(get_lmid(ells_eff, k=1), utils.percent_diff(np.diag(cov_sim_plt, k=1), np.diag(cov_nmt_plt, k=1)),
+       marker='.', label='sim/nmt, k=1', c=clr[1], ls='--')
 
     ax[1].set_ylabel('% diff cov fsky/part_sky')
     ax[1].set_xlabel(r'$\ell$')
@@ -1349,6 +1351,68 @@ if part_sky:
     # Adjust layout to make room for colorbars
     fig.suptitle(title)
     plt.tight_layout()
+    plt.show()
+    
+    # ! new: compute chi2
+    sim_cl_GG = np.load(
+        f'../output/sim_cl_GG_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
+    sim_cl_GL = np.load(
+        f'../output/sim_cl_GL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
+    sim_cl_LL = np.load(
+        f'../output/sim_cl_LL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
+
+    sim_cl_3x2pt_6d = np.zeros((nreal, n_probes, n_probes, nbl_eff, zbins_use, zbins_use))
+    sim_cl_3x2pt_6d[:, 0, 0, :, :, :] = sim_cl_LL
+    sim_cl_3x2pt_6d[:, 1, 0, :, :, :] = sim_cl_GL
+    sim_cl_3x2pt_6d[:, 0, 1, :, :, :] = sim_cl_GL.transpose(0, 1, 3, 2)
+    sim_cl_3x2pt_6d[:, 1, 1, :, :, :] = sim_cl_GG
+
+    sim_cl_GG_1d = np.zeros((nreal, nbl_eff * zpairs_auto_use))
+    sim_cl_GL_1d = np.zeros((nreal, nbl_eff * zpairs_cross_use))
+    sim_cl_LL_1d = np.zeros((nreal, nbl_eff * zpairs_auto_use))
+    for i in range(nreal):
+        sim_cl_GG_1d[i, ...] =  utils.cl_3D_to_1D(sim_cl_3x2pt_6d[i, 1, 1, :, :, :], '_', is_auto_spectrum=True, block_index='ell')
+        sim_cl_GL_1d[i, ...] =  utils.cl_3D_to_1D(sim_cl_3x2pt_6d[i, 1, 0, :, :, :], '_', is_auto_spectrum=False, block_index='ell')
+        sim_cl_LL_1d[i, ...] =  utils.cl_3D_to_1D(sim_cl_3x2pt_6d[i, 0, 0, :, :, :], '_', is_auto_spectrum=True, block_index='ell')
+
+    sim_cl_3x2pt = np.concatenate((sim_cl_LL_1d, sim_cl_GL_1d, sim_cl_GG_1d), axis=1)
+    sim_cl_3x2pt_mean = np.mean(sim_cl_3x2pt, axis=0)
+    
+    chi2_sim = []
+    chi2_nmt = []
+    chi2_sb = []
+    cov_sim_2d_inv = np.linalg.inv(cov_sim_2d)
+    cov_nmt_2d_inv = np.linalg.inv(cov_nmt_2d)
+    cov_sb_2d_inv = np.linalg.inv(cov_sb_2d)
+    for i in range(nreal):
+        chi2_sim.append((sim_cl_3x2pt[i] - sim_cl_3x2pt_mean) @ cov_sim_2d_inv @ (sim_cl_3x2pt[i] - sim_cl_3x2pt_mean))
+        chi2_nmt.append((sim_cl_3x2pt[i] - sim_cl_3x2pt_mean) @ cov_nmt_2d_inv @ (sim_cl_3x2pt[i] - sim_cl_3x2pt_mean))
+        chi2_sb.append((sim_cl_3x2pt[i] - sim_cl_3x2pt_mean) @ cov_sb_2d_inv @ (sim_cl_3x2pt[i] - sim_cl_3x2pt_mean))
+        
+    chi2_sim = np.array(chi2_sim)
+    chi2_nmt = np.array(chi2_nmt)
+    chi2_sb = np.array(chi2_sb)
+    
+    plt.figure()
+    plt.hist(chi2_nmt, bins=70, density=False, label='nmt cov')
+    plt.hist(chi2_sim, bins=70, density=False, label='sim cov')
+    plt.xlabel(r'$\chi^2$')
+    plt.ylabel('counts')
+    plt.legend()
+    plt.show()
+    
+    # now plot the eigenvalues
+    eigen_sim = np.linalg.eigvalsh(cov_sim_2d)
+    eigen_nmt = np.linalg.eigvalsh(cov_nmt_2d)
+    eigen_sb = np.linalg.eigvalsh(cov_sb_2d)
+    
+    plt.figure()
+    plt.semilogy(eigen_sim[::-1], label='sim cov')
+    plt.semilogy(eigen_nmt[::-1], label='nmt cov')
+    plt.semilogy(eigen_sb[::-1], label='sb cov')
+    plt.xlabel('eigenvalue index')
+    plt.ylabel('eigenvalue')
+    plt.legend()
     plt.show()
 
     assert False, 'stop here to check partial-sky cov'
