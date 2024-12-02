@@ -669,8 +669,6 @@ if part_sky:
     cl_BB_unbinned = np.zeros_like(cl_LL_unbinned)
     cl_TB_unbinned = np.zeros_like(cl_LL_unbinned)
     cl_EB_unbinned = np.zeros_like(cl_LL_unbinned)
-    cl_LB_unbinned = np.zeros_like(cl_LL_unbinned)
-    cl_GB_unbinned = np.zeros_like(cl_LL_unbinned)
 
     cl_GG_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
     cl_GL_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
