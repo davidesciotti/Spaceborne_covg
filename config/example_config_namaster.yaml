@@ -6,7 +6,7 @@ zbins_use: 2
 EP_or_ED: "EP" # or 'ED'. Equipopulated or equidistant redshift bins
 
 ell_min: 10 # minimum ell for the angular power spectra
-ell_max: 5000 # maximum ell for the angular power spectra
+ell_max: 1536 # maximum ell for the angular power spectra
 ell_bins: 32 # number of ell bins for the angular power spectra
 
 # alternatively, one can specify the ell grid directly (set to "null" if you prefer to use ell_min, ell_max, ell_bins)
