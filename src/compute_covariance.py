@@ -581,7 +581,7 @@ if part_sky:
     # to be safe, following https://heracles.readthedocs.io/stable/examples/example.html
     lmax_healpy_safe = int(1.5 * nside)
     lmax = bin_obj.lmax + 1
-    
+
     ells_eff = bin_obj.get_effective_ells()  # get effective ells per bandpower
     ells_tot = np.arange(lmax)
     nbl_eff = len(ells_eff)
@@ -903,10 +903,17 @@ if part_sky:
     cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
     cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
     cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
+
+
     if use_INKA:
-        cl_GG_4covnmt = pcl_GG_nmt / fsky
-        cl_GL_4covnmt = pcl_GL_nmt / fsky
-        cl_LL_4covnmt = pcl_LL_nmt / fsky
+        cl_GG_4covnmt = np.zeros_like(cl_GG_unbinned[:, :zbins_use, :zbins_use])
+        cl_GL_4covnmt = np.zeros_like(cl_GL_unbinned[:, :zbins_use, :zbins_use])
+        cl_LL_4covnmt = np.zeros_like(cl_LL_unbinned[:, :zbins_use, :zbins_use])
+        for zi in range(zbins_use):
+            for zj in range(zbins_use):
+                cl_GG_4covnmt[:, zi, zj] = w00.couple_cell(cl_GG_unbinned[:, zi, zj]) / fsky
+                cl_GL_4covnmt[:, zi, zj] = w02.couple_cell(cl_GL_unbinned[:, zi, zj]) / fsky
+                cl_LL_4covnmt[:, zi, zj] = w22.couple_cell(cl_LL_unbinned[:, zi, zj]) / fsky
 
         # TODO not super sure about this
         # cl_GG_4covsb = pcl_GG_nmt[:, :zbins_use, :zbins_use] / fsky
@@ -1350,7 +1357,7 @@ if part_sky:
     fig.suptitle(title)
     plt.tight_layout()
     plt.show()
-    
+
     # ! new: compute chi2
     sim_cl_GG = np.load(
         f'../output/sim_cl_GG_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
@@ -1375,7 +1382,7 @@ if part_sky:
 
     sim_cl_3x2pt = np.concatenate((sim_cl_LL_1d, sim_cl_GL_1d, sim_cl_GG_1d), axis=1)
     sim_cl_3x2pt_mean = np.mean(sim_cl_3x2pt, axis=0)
-    
+
     chi2_sim = []
     chi2_nmt = []
     chi2_sb = []
@@ -1386,11 +1393,11 @@ if part_sky:
         chi2_sim.append((sim_cl_3x2pt[i] - sim_cl_3x2pt_mean) @ cov_sim_2d_inv @ (sim_cl_3x2pt[i] - sim_cl_3x2pt_mean))
         chi2_nmt.append((sim_cl_3x2pt[i] - sim_cl_3x2pt_mean) @ cov_nmt_2d_inv @ (sim_cl_3x2pt[i] - sim_cl_3x2pt_mean))
         chi2_sb.append((sim_cl_3x2pt[i] - sim_cl_3x2pt_mean) @ cov_sb_2d_inv @ (sim_cl_3x2pt[i] - sim_cl_3x2pt_mean))
-        
+
     chi2_sim = np.array(chi2_sim)
     chi2_nmt = np.array(chi2_nmt)
     chi2_sb = np.array(chi2_sb)
-    
+
     plt.figure()
     plt.hist(chi2_nmt, bins=70, density=False, label='nmt cov')
     plt.hist(chi2_sim, bins=70, density=False, label='sim cov')
@@ -1398,12 +1405,12 @@ if part_sky:
     plt.ylabel('counts')
     plt.legend()
     plt.show()
-    
+
     # now plot the eigenvalues
     eigen_sim = np.linalg.eigvalsh(cov_sim_2d)
     eigen_nmt = np.linalg.eigvalsh(cov_nmt_2d)
     eigen_sb = np.linalg.eigvalsh(cov_sb_2d)
-    
+
     plt.figure()
     plt.semilogy(eigen_sim[::-1], label='sim cov')
     plt.semilogy(eigen_nmt[::-1], label='nmt cov')
