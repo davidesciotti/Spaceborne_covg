@@ -64,7 +64,7 @@ def Cl_3D_to_2D_symmetric(Cl_3D, nbl, npairs, zbins):
 
 
 def Cl_3D_to_2D_asymmetric(Cl_3D):
-    """ reshape from (nbl, zbins, zbins) to (nbl, npairs), rows first 
+    """ reshape from (nbl, zbins, zbins) to (nbl, npairs), rows first
     (valid for asymmetric Cij, i.e. C_XC)
     """
     assert Cl_3D.ndim == 3, 'Cl_3D must be a 3D array'
@@ -367,7 +367,7 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, coupl
             cov_nmt_10d_arr[0, 0, 1, 0, :, :, zi, zj, zk, zl] = covar_EE_TE
             cov_nmt_10d_arr[0, 0, 1, 1, :, :, zi, zj, zk, zl] = covar_EE_TT
             cov_nmt_10d_arr[1, 0, 1, 1, :, :, zi, zj, zk, zl] = covar_TE_TT
-            
+
         else:
             # switch zi, zj with zk, zl in this case
             cov_nmt_10d_arr[0, 0, 1, 0, :, :, zk, zl, zi, zj] = covar_TE_EE.T
@@ -1993,15 +1993,15 @@ def cov_4D_to_6D_blocks_opt(cov_4D, nbl, zbins, ind_ab, ind_cd, symmetrize_outpu
 
 
 # @njit
-def cov_4D_to_6D_blocks(cov_4D, nbl, zbins, ind_ab, ind_cd, 
+def cov_4D_to_6D_blocks(cov_4D, nbl, zbins, ind_ab, ind_cd,
                         symmetrize_output_ab: bool, symmetrize_output_cd: bool):
     """
     Reshapes the 4D covariance matrix to a 6D covariance matrix, even for the cross-probe (non-square) blocks needed
     to build the 3x2pt covariance.
-    
-    This function can be used for the normal routine (valid for auto-covariance, i.e., LL-LL, GG-GG, GL-GL and LG-LG) 
+
+    This function can be used for the normal routine (valid for auto-covariance, i.e., LL-LL, GG-GG, GL-GL and LG-LG)
     where `zpairs_ab = zpairs_cd` and `ind_ab = ind_cd`.
-    
+
     Args:
         cov_4D (np.ndarray): The 4D covariance matrix.
         nbl (int): The number of ell bins.
@@ -2010,7 +2010,7 @@ def cov_4D_to_6D_blocks(cov_4D, nbl, zbins, ind_ab, ind_cd,
         ind_cd (np.ndarray): The indices for the second pair of redshift bins.
         symmetrize_output_ab (bool): Whether to symmetrize the output cov block for the first pair of probes.
         symmetrize_output_cd (bool): Whether to symmetrize the output cov block for the second pair of probes.
-    
+
     Returns:
         np.ndarray: The 6D covariance matrix.
     """

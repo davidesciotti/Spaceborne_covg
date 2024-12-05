@@ -424,11 +424,14 @@ ells_per_band = cfg['ells_per_band']
 nside = cfg['nside']
 nreal = cfg['nreal']
 zbins_use = cfg['zbins_use']
-coupled_cls = cfg['coupled_cls']
 use_INKA = cfg['use_INKA']
 which_cls = cfg['which_cls']
 
 coupled_cls_label = 'coupled_cls' if coupled_cls else 'uncoupled_cls'
+
+if use_INKA and cfg['coupled_nmt_cov'] :
+    raise ValueError('Cannot do iNKA for coupled Cls covariance.')
+
 
 # read or generate mask
 if cfg['read_mask']:
@@ -657,24 +660,29 @@ elem_autpluscross_use = (zpairs_auto_use + zpairs_cross_use) * nbl_eff
 cov_nmt_4d = utils.cov_3x2pt_10D_to_4D(cov_nmt_10d, probe_ordering,
                                         nbl_eff, zbins_use, ind_use.copy(), GL_or_LG)
 
-if covariance_ordering_2D == 'probe_ell_zpair':
+if covariance_ordering_2D == 'probe-ell-zpair':
     use_2DCLOE = True
     block_index = 'ell'
     cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_nmt_4d, zbins_use, block_index=block_index)
 
-elif covariance_ordering_2D == 'probe_zpair_ell':
+elif covariance_ordering_2D == 'probe-zpair-ell':
     use_2DCLOE = True
     block_index = 'ij'
     cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_nmt_4d, zbins_use, block_index=block_index)
 
-elif covariance_ordering_2D == 'ell_probe_zpair':
+elif covariance_ordering_2D == 'ell-probe-zpair':
     use_2DCLOE = False
     block_index = 'ell'
     cov_nmt_2d = utils.cov_4D_to_2D(cov_nmt_4d, block_index=block_index, optimize=True)
 
-elif covariance_ordering_2D == 'zpair_probe_ell':
+elif covariance_ordering_2D == 'zpair-probe-ell':
     use_2DCLOE = False
     block_index = 'ij'
     cov_nmt_2d = utils.cov_4D_to_2D(cov_nmt_4d, block_index=block_index, optimize=True)
 
-np.save(f'{output_folder}/cov_Gauss_3x2pt_2D_probe-ell-zpair.npy', cov_nmt_2d)
+spin_dic = {True:'spin0', False: 'spin2'}
+coupled_dic = {True:'coupled', False: 'decoupled'}
+
+fname = f"{output_folder}/cov_Gauss_3x2pt_2D_{covariance_ordering_2D}_{zbins_use}bins_{spin_dic[cfg['spin0']]}_iNKA{use_INKA}_{coupled_dic[cfg['coupled_nmt_cov']]}.npy"
+
+np.save(fname, cov_nmt_2d)

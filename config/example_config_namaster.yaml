@@ -2,7 +2,7 @@
 # Author: Davide Sciotti
 
 zbins: 10 # number of redshift bins
-zbins_use: 6
+zbins_use: 2
 EP_or_ED: "EP" # or 'ED'. Equipopulated or equidistant redshift bins
 
 ell_min: 10 # minimum ell for the angular power spectra
@@ -44,25 +44,17 @@ nside: 512  # nside of the healpix mask and maps
 apodize_mask: True
 aposize: 0.1 # apodization scale in deg
 ells_per_band: 50 # number of multipole values per bandpower
-nreal: 2 # number of Gaussian realisations
-load_simulated_cls: False  # whether to load simulated cls from file
-coupled_cls: False  # compute the covariance of the coupled or uncoupled cls
-coupled_nmt_cov: False  # compute the covariance of the coupled or uncoupled cls
+coupled_nmt_cov: True  # compute the covariance of the coupled or uncoupled cls
 compute_all_blocks: False  # compute all probe blocks of the nmt covariance
 which_ell_weights: get_weight_list()  # get_weight_list() or get_bandpower_windows()
 which_cls: namaster  # namaster or healpy
-compute_namaster_sims: False
 use_INKA: False
-save_sim_maps: True
-save_sample_cov: True
-load_sample_cov: False
-sample_cov_name: "../output/cov_sim_10d_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled_cls:s}.npy"
 spin0: True
 
 # datavector and covariance ordering options
 triu_tril: "triu" # or 'tril'. Which elements of the (symmetric) auto-spectra are kept
 row_col_major: "row-major" # whether the flattening of the spectra is in row-major or column-major order
-covariance_ordering_2D: "probe_zpair_ell" # must be one of ['probe_ell_zpair', 'probe_zpair_ell', 'ell_probe_zpair', 'zpair_probe_ell']
+covariance_ordering_2D: "probe-ell-zpair" # must be one of ['probe_ell_zpair', 'probe_zpair_ell', 'ell_probe_zpair', 'zpair_probe_ell']
 # the naming convention is to have the outermost loop on the left, and the innermost loop on the right; so, e.g.,
 # probe_ell_zpair means that the outermost loop is on the probes, the middle loop is on ell and the innermost loop is on zpair
 # CLOE v1 needs as input the ell_probe_zpair ordering.
