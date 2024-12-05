@@ -911,9 +911,13 @@ if part_sky:
         cl_LL_4covnmt = np.zeros_like(cl_LL_unbinned[:, :zbins_use, :zbins_use])
         for zi in range(zbins_use):
             for zj in range(zbins_use):
-                cl_GG_4covnmt[:, zi, zj] = w00.couple_cell(cl_GG_unbinned[:, zi, zj]) / fsky
-                cl_GL_4covnmt[:, zi, zj] = w02.couple_cell(cl_GL_unbinned[:, zi, zj]) / fsky
-                cl_LL_4covnmt[:, zi, zj] = w22.couple_cell(cl_LL_unbinned[:, zi, zj]) / fsky
+                cl_GG_4covnmt[:, zi, zj] = w00.couple_cell([cl_GG_unbinned[:, zi, zj]])[0] / fsky
+                cl_GL_4covnmt[:, zi, zj] = w02.couple_cell([cl_GL_unbinned[:, zi, zj],
+                                                            np.zeros_like(cl_GL_unbinned[:, zi, zj])])[0] / fsky
+                cl_LL_4covnmt[:, zi, zj] = w22.couple_cell([cl_GL_unbinned[:, zi, zj],
+                                                            np.zeros_like(cl_GL_unbinned[:, zi, zj]),
+                                                            np.zeros_like(cl_GL_unbinned[:, zi, zj]),
+                                                            np.zeros_like(cl_GL_unbinned[:, zi, zj])])[0] / fsky
 
         # TODO not super sure about this
         # cl_GG_4covsb = pcl_GG_nmt[:, :zbins_use, :zbins_use] / fsky
