@@ -15,94 +15,6 @@ import utils
 import os
 ROOT = os.getenv("ROOT")
 
-def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
-                      nbl, zbins, mask, nside, nreal, coupled_cls, which_cls):
-
-    # TODO use only independent z pairs
-    cov_sim_10d = np.zeros((n_probes, n_probes, n_probes, n_probes, nbl, nbl, zbins, zbins, zbins, zbins))
-    sim_cl_GG = np.zeros((nreal, nbl, zbins, zbins))
-    sim_cl_GL = np.zeros((nreal, nbl, zbins, zbins))
-    sim_cl_LL = np.zeros((nreal, nbl, zbins, zbins))
-
-    # 1. produce correlated maps
-    print(f'Generating {nreal} maps for nside {nside} and computing pseudo-cls with {which_cls}...')
-
-    cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
-        cl_TT=cl_GG_unbinned,
-        cl_EE=cl_LL_unbinned,
-        cl_BB=cl_BB_unbinned,
-        cl_TE=cl_GL_unbinned,
-        cl_EB=cl_EB_unbinned,
-        cl_TB=cl_TB_unbinned,
-        zbins=zbins,
-        spectra_types=['T', 'E', 'B'])
-
-    zij_combinations = list(itertools.product(range(zbins), repeat=2))
-    zijkl_combinations = list(itertools.product(range(zbins), repeat=4))
-
-    for i in tqdm(range(nreal)):
-
-        # * 1. produce correlated alms
-        corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
-        assert len(corr_alms_tot) == zbins * 3, 'wrong number of alms'
-
-        # extract alm for TT, EE, BB
-        corr_alms = corr_alms_tot[::3]
-        corr_Elms_Blms = list(zip(corr_alms_tot[1::3], corr_alms_tot[2::3]))
-
-        # compute correlated maps
-        corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms]
-        corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1) for (Elm, Blm) in corr_Elms_Blms]
-
-        # * 2. compute and bin simulated cls for all zbin combinations, using input correlated maps
-        for zi, zj in zij_combinations:
-            sim_cl_GG_ij, sim_cl_GL_ij, sim_cl_LL_ij = pcls_from_maps(corr_maps_gg=corr_maps_gg,
-                                                                      corr_maps_ll=corr_maps_ll,
-                                                                      zi=zi,
-                                                                      zj=zj,
-                                                                      mask=mask,
-                                                                      coupled_cls=coupled_cls,
-                                                                      which_cls=which_cls)
-
-            assert sim_cl_GG_ij.shape == sim_cl_GL_ij.shape == sim_cl_LL_ij.shape, 'Simulated cls must have the same shape'
-
-            if len(sim_cl_GG_ij) != nbl:
-                sim_cl_GG[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_GG_ij)
-                sim_cl_GL[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_GL_ij)
-                sim_cl_LL[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_LL_ij)
-            else:
-                sim_cl_GG[i, :, zi, zj] = sim_cl_GG_ij
-                sim_cl_GL[i, :, zi, zj] = sim_cl_GL_ij
-                sim_cl_LL[i, :, zi, zj] = sim_cl_LL_ij
-
-    # * 3. compute sample covariance
-    for zi, zj, zk, zl in tqdm(zijkl_combinations):
-
-        # ! compute the sample covariance
-        # you could also cut the mixed cov terms, but for cross-redshifts it becomes a bit tricky
-        kw = dict(rowvar=False, bias=False)
-        cov_sim_10d[0, 0, 0, 0, :, :, zi, zj, zk, zl] = np.cov(
-            sim_cl_LL[:, :, zi, zj], sim_cl_LL[:, :, zk, zl], **kw)[:nbl, nbl:]
-        cov_sim_10d[0, 0, 1, 0, :, :, zi, zj, zk, zl] = np.cov(
-            sim_cl_LL[:, :, zi, zj], sim_cl_GL[:, :, zk, zl], **kw)[:nbl, nbl:]
-        cov_sim_10d[0, 0, 1, 1, :, :, zi, zj, zk, zl] = np.cov(
-            sim_cl_LL[:, :, zi, zj], sim_cl_GG[:, :, zk, zl], **kw)[:nbl, nbl:]
-        cov_sim_10d[1, 0, 0, 0, :, :, zi, zj, zk, zl] = np.cov(
-            sim_cl_GL[:, :, zi, zj], sim_cl_LL[:, :, zk, zl], **kw)[:nbl, nbl:]
-        cov_sim_10d[1, 0, 1, 0, :, :, zi, zj, zk, zl] = np.cov(
-            sim_cl_GL[:, :, zi, zj], sim_cl_GL[:, :, zk, zl], **kw)[:nbl, nbl:]
-        cov_sim_10d[1, 0, 1, 1, :, :, zi, zj, zk, zl] = np.cov(
-            sim_cl_GL[:, :, zi, zj], sim_cl_GG[:, :, zk, zl], **kw)[:nbl, nbl:]
-        cov_sim_10d[1, 1, 0, 0, :, :, zi, zj, zk, zl] = np.cov(
-            sim_cl_GG[:, :, zi, zj], sim_cl_LL[:, :, zk, zl], **kw)[:nbl, nbl:]
-        cov_sim_10d[1, 1, 1, 0, :, :, zi, zj, zk, zl] = np.cov(
-            sim_cl_GG[:, :, zi, zj], sim_cl_GL[:, :, zk, zl], **kw)[:nbl, nbl:]
-        cov_sim_10d[1, 1, 1, 1, :, :, zi, zj, zk, zl] = np.cov(
-            sim_cl_GG[:, :, zi, zj], sim_cl_GG[:, :, zk, zl], **kw)[:nbl, nbl:]
-
-    return cov_sim_10d, sim_cl_GG, sim_cl_GL, sim_cl_LL
-
-
 def build_cl_ring_ordering(cl_3d):
 
     zbins = cl_3d.shape[1]
@@ -233,10 +145,6 @@ def compute_master(f_a, f_b, wsp):
     cl_coupled = nmt.compute_coupled_cell(f_a, f_b)
     cl_decoupled = wsp.decouple_cell(cl_coupled)
     return cl_decoupled
-
-
-
-
 
 def produce_gaussian_sims(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zi, zj, nreal, nside, mask, coupled, which_cls, lmax):
 
@@ -503,461 +411,265 @@ for probe_A in (0, 1):
 
 # compute 3x2pt cov
 start = time.perf_counter()
-if part_sky:
-    print('Computing the partial-sky covariance with NaMaster')
 
-    # ! =============================================== IMPLEMENTATION BY DAVIDE =======================================
-    # TODO check implementation by R. Upham: https://github.com/robinupham/shear_pcl_cov/blob/main/shear_pcl_cov/gaussian_cov.py
-    import healpy as hp
-    import pymaster as nmt
+print('Computing the partial-sky covariance with NaMaster')
 
-    ells_unbinned = np.arange(cl_LL_unbinned.shape[0])
-    ells_per_band = cfg['ells_per_band']
-    nside = cfg['nside']
-    nreal = cfg['nreal']
-    zbins_use = cfg['zbins_use']
-    coupled_cls = cfg['coupled_cls']
-    use_INKA = cfg['use_INKA']
-    which_cls = cfg['which_cls']
+# ! =============================================== IMPLEMENTATION BY DAVIDE =======================================
+# TODO check implementation by R. Upham: https://github.com/robinupham/shear_pcl_cov/blob/main/shear_pcl_cov/gaussian_cov.py
+import healpy as hp
+import pymaster as nmt
 
-    coupled_cls_label = 'coupled_cls' if coupled_cls else 'uncoupled_cls'
+ells_unbinned = np.arange(cl_LL_unbinned.shape[0])
+ells_per_band = cfg['ells_per_band']
+nside = cfg['nside']
+nreal = cfg['nreal']
+zbins_use = cfg['zbins_use']
+coupled_cls = cfg['coupled_cls']
+use_INKA = cfg['use_INKA']
+which_cls = cfg['which_cls']
 
-    # read or generate mask
-    if cfg['read_mask']:
-        if mask_path.endswith('.fits'):
-            mask = hp.read_map(mask_path)
-            mask = np.where(np.logical_and(mask <= utils.DR1_DATE, mask >= 0.), 1., 0,)
-        elif mask_path.endswith('.npy'):
-            mask = np.load(mask_path)
-        mask = hp.ud_grade(mask, nside_out=nside)
+coupled_cls_label = 'coupled_cls' if coupled_cls else 'uncoupled_cls'
 
-    else:
-        # mask = utils.generate_polar_cap(area_deg2=survey_area_deg2, nside=cfg['nside'])
-        mask = utils.generate_survey_mask(area_deg2=survey_area_deg2,
-                                          nside=cfg['nside'],
-                                          shape=cfg['mask_shape'])
+# read or generate mask
+if cfg['read_mask']:
+    if mask_path.endswith('.fits'):
+        mask = hp.read_map(mask_path)
+        mask = np.where(np.logical_and(mask <= utils.DR1_DATE, mask >= 0.), 1., 0,)
+    elif mask_path.endswith('.npy'):
+        mask = np.load(mask_path)
+    mask = hp.ud_grade(mask, nside_out=nside)
 
-    fsky = np.mean(mask**2)
-    survey_area_deg2 = fsky * utils.DEG2_IN_SPHERE
+else:
+    # mask = utils.generate_polar_cap(area_deg2=survey_area_deg2, nside=cfg['nside'])
+    mask = utils.generate_survey_mask(area_deg2=survey_area_deg2,
+                                        nside=cfg['nside'],
+                                        shape=cfg['mask_shape'])
 
-    # TODO check np.all(mask == 1)
+fsky = np.mean(mask**2)
+survey_area_deg2 = fsky * utils.DEG2_IN_SPHERE
 
-    # apodize
-    # hp.mollview(mask, title='before apodization', cmap='inferno_r')
-    if cfg['apodize_mask'] and int(survey_area_deg2) != int(utils.DEG2_IN_SPHERE):
-        mask = nmt.mask_apodization(mask, aposize=cfg['aposize'], apotype="Smooth")
-        # hp.mollview(mask, title='after apodization', cmap='inferno_r')
+# TODO check np.all(mask == 1)
 
-    # recompute after apodizing
-    fsky = np.mean(mask**2)
-    survey_area_deg2 = fsky * utils.DEG2_IN_SPHERE
+# apodize
+# hp.mollview(mask, title='before apodization', cmap='inferno_r')
+if cfg['apodize_mask'] and int(survey_area_deg2) != int(utils.DEG2_IN_SPHERE):
+    mask = nmt.mask_apodization(mask, aposize=cfg['aposize'], apotype="Smooth")
+    # hp.mollview(mask, title='after apodization', cmap='inferno_r')
 
-    npix = hp.nside2npix(nside)
-    pix_area = 4 * np.pi
+# recompute after apodizing
+fsky = np.mean(mask**2)
+survey_area_deg2 = fsky * utils.DEG2_IN_SPHERE
 
-    # check fsky and nside
-    nside_from_mask = hp.get_nside(mask)
-    assert nside_from_mask == cfg['nside'], 'nside from mask is not consistent with the desired nside in the cfg file'
+npix = hp.nside2npix(nside)
+pix_area = 4 * np.pi
 
-
-    # get lmin: quick estimate
-    survey_area_rad = np.sum(mask) * hp.nside2pixarea(nside)
-    lmin_mask = int(np.ceil(np.pi / np.sqrt(survey_area_rad)))
-
-    # ! Define the set of bandpowers used in the computation of the pseudo-Cl
-    # Initialize binning scheme with bandpowers of constant width (ells_per_band multipoles per bin)
-    # TODO use lmax_mask instead of nside? Decide which binning scheme is the best
-    # ell_values, delta_values, ell_bin_edges = utils.compute_ells(nbl, 0, lmax, recipe='ISTF', output_ell_bin_edges=True)
-    # bin_obj = nmt.NmtBin.from_lmax_linear(lmax=lmax, nlb=ells_per_band, is_Dell=False, f_ell=None) # TODO test this
-    # bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
-    bin_obj = nmt.NmtBin.from_edges(
-    ell_bin_lower_edges.astype(int),
-    ell_bin_upper_edges.astype(int), is_Dell=False, f_ell=None)
-
-    # set different possible values for lmax
-    lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
-    lmax_healpy = 3 * nside
-    # to be safe, following https://heracles.readthedocs.io/stable/examples/example.html
-    lmax_healpy_safe = int(1.5 * nside)
-    lmax = bin_obj.lmax + 1
-
-    ells_eff = bin_obj.get_effective_ells()  # get effective ells per bandpower
-    ells_tot = np.arange(lmax)
-    nbl_eff = len(ells_eff)
-    nbl_tot = len(ells_tot)
-    ells_eff_edges = np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)])
-    ells_eff_edges = np.append(ells_eff_edges, bin_obj.get_ell_list(nbl_eff - 1)[-1] + 1)  # careful f the +1!
-    lmin_eff = ells_eff_edges[0]
-    lmax_eff = ells_eff_edges[-1]
-    ells_bpw = ells_tot[lmin_eff:lmax_eff]
-    delta_ells_bpw = np.diff(np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)]))
-    # assert np.all(delta_ells_bpw == ells_per_band), 'delta_ell from bpw does not match ells_per_band'
-
-    # ! create nmt field from the mask (there will be no maps associated to the fields)
-    # TODO maks=None (as in the example) or maps=[mask]? I think None
-    start_time = time.perf_counter()
-    print('computing coupling coefficients...')
-    f0_mask = nmt.NmtField(mask=mask, maps=None, spin=0, lite=True, lmax=bin_obj.lmax)
-    f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True, lmax=bin_obj.lmax)
-    w00 = nmt.NmtWorkspace()
-    w02 = nmt.NmtWorkspace()
-    w22 = nmt.NmtWorkspace()
-    w00.compute_coupling_matrix(f0_mask, f0_mask, bin_obj)
-    w02.compute_coupling_matrix(f0_mask, f2_mask, bin_obj)
-    w22.compute_coupling_matrix(f2_mask, f2_mask, bin_obj)
-    print(f'...done in {(time.perf_counter() - start_time):.2f}s')
-
-    # ! Plot bpowers
-    # TODO: better understand difference between bpw_00, 02, 22, if any
-    # TODO: better understand lmin estimate (I could do it direcly from bin_obj...)
-
-    # Get bandpower window functions. Convolve the theory power spectra with these as an alternative to the combination
-    # of function calls w.decouple_cell(w.couple_cell(cls_theory))
-    bpw_00 = w00.get_bandpower_windows()
-    bpw_02 = w02.get_bandpower_windows()
-    bpw_22 = w22.get_bandpower_windows()
-
-    # if cfg['which_ell_weights'] == 'get_weight_list()':
-    #     ell_weights = np.array([bin_obj.get_weight_list(ell_idx)
-    #                             for ell_idx in range(nbl_eff)]).flatten()  # get effective ells per bandpower
-    # elif cfg['which_ell_weights'] == 'get_bandpower_windows()':
-    #     warnings.warn('Using bpw_00 as ell_weights')
-    #     ell_weights = bpw_00[0, :, 0]
-
-    #     # interpolate on ells_bpw
-    #     # ell_weights = np.zeros((nbl_eff, len(ells_bpw)))
-    #     # for ell_idx in range(nbl_eff):
-    #     # ell_weights[ell_idx, :] = np.interp(ells_bpw, ells_tot, _ell_weights[ell_idx, :])
-    # else:
-    #     raise ValueError(f"Invalid value for 'which_ell_weights': {cfg['which_ell_weights']}")
-
-    # assert bpw_00.shape[1] == bpw_02.shape[1] == bpw_22.shape[1], \
-    #     "The number of bandpower windows must be the same for all fields"
+# check fsky and nside
+nside_from_mask = hp.get_nside(mask)
+assert nside_from_mask == cfg['nside'], 'nside from mask is not consistent with the desired nside in the cfg file'
 
 
-    # clr = cm.rainbow(np.linspace(0, 1, bpw_00.shape[1]))
-    # plt.figure(figsize=(10, 6))
-    # for i in range(nbl_eff):
-    #     plt.plot(ells_tot, bpw_00[0, i, 0, :], c=clr[i], label='bpw_00' if i == 0 else '')
-    #     plt.plot(ells_tot, bpw_02[0, i, 0, :], c=clr[i], ls=':', label='bpw_02' if i == 0 else '')
-    #     plt.plot(ells_tot, bpw_22[0, i, 0, :], c=clr[i], ls='--', label='bpw_22' if i == 0 else '')
+# get lmin: quick estimate
+survey_area_rad = np.sum(mask) * hp.nside2pixarea(nside)
+lmin_mask = int(np.ceil(np.pi / np.sqrt(survey_area_rad)))
 
-    # ell edges
-    # for i in range(nbl_eff + 1):
-    #     plt.axvline(ells_eff_edges[i], c='k', ls='--')
+# ! Define the set of bandpowers used in the computation of the pseudo-Cl
+# Initialize binning scheme with bandpowers of constant width (ells_per_band multipoles per bin)
+# TODO use lmax_mask instead of nside? Decide which binning scheme is the best
+# ell_values, delta_values, ell_bin_edges = utils.compute_ells(nbl, 0, lmax, recipe='ISTF', output_ell_bin_edges=True)
+# bin_obj = nmt.NmtBin.from_lmax_linear(lmax=lmax, nlb=ells_per_band, is_Dell=False, f_ell=None) # TODO test this
+# bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
+bin_obj = nmt.NmtBin.from_edges(
+ell_bin_lower_edges.astype(int),
+ell_bin_upper_edges.astype(int), is_Dell=False, f_ell=None)
 
-    # plt.xlabel(r'$\ell$')
-    # plt.ylabel('Window function')
-    # plt.title('Bandpower Window Functions')
-    # plt.legend()
-    # plt.show()
-    # TODO finish checking lmin
-    # ! end get lmin: better estimate
+# set different possible values for lmax
+lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
+lmax = bin_obj.lmax + 1
 
-    print('lmin_mask:', lmin_mask)
-    print('lmax_mask:', lmax_mask)
-    print('lmax_healpy:', lmax_healpy)
-    print('lmax_bin_obj:',  bin_obj.lmax)
-    print('nside:', nside)
-    print('fsky after apodization:', fsky)
+ells_eff = bin_obj.get_effective_ells()  # get effective ells per bandpower
+ells_tot = np.arange(lmax)
+nbl_eff = len(ells_eff)
+nbl_tot = len(ells_tot)
+ells_eff_edges = np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)])
+ells_eff_edges = np.append(ells_eff_edges, bin_obj.get_ell_list(nbl_eff - 1)[-1] + 1)  # careful f the +1!
+lmin_eff = ells_eff_edges[0]
+lmax_eff = ells_eff_edges[-1]
+ells_bpw = ells_tot[lmin_eff:lmax_eff]
+delta_ells_bpw = np.diff(np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)]))
+# assert np.all(delta_ells_bpw == ells_per_band), 'delta_ell from bpw does not match ells_per_band'
 
-    # cut and bin the theory
-    cl_GG_unbinned = cl_GG_unbinned[:lmax, :zbins_use, :zbins_use]
-    cl_GL_unbinned = cl_GL_unbinned[:lmax, :zbins_use, :zbins_use]
-    cl_LL_unbinned = cl_LL_unbinned[:lmax, :zbins_use, :zbins_use]
-    cl_BB_unbinned = np.zeros_like(cl_LL_unbinned)
-    cl_TB_unbinned = np.zeros_like(cl_LL_unbinned)
-    cl_EB_unbinned = np.zeros_like(cl_LL_unbinned)
+# ! create nmt field from the mask (there will be no maps associated to the fields)
+# TODO maks=None (as in the example) or maps=[mask]? I think None
+start_time = time.perf_counter()
+print('computing coupling coefficients...')
+f0_mask = nmt.NmtField(mask=mask, maps=None, spin=0, lite=True, lmax=bin_obj.lmax)
+f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True, lmax=bin_obj.lmax)
+w00 = nmt.NmtWorkspace()
+w02 = nmt.NmtWorkspace()
+w22 = nmt.NmtWorkspace()
+w00.compute_coupling_matrix(f0_mask, f0_mask, bin_obj)
+w02.compute_coupling_matrix(f0_mask, f2_mask, bin_obj)
+w22.compute_coupling_matrix(f2_mask, f2_mask, bin_obj)
+print(f'...done in {(time.perf_counter() - start_time):.2f}s')
 
-    cl_GG_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
-    cl_GL_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
-    cl_LL_bpw = np.zeros((nbl_eff, zbins_use, zbins_use))
-    cl_GG_bpw_dav = np.zeros((nbl_eff, zbins_use, zbins_use))
-    cl_GL_bpw_dav = np.zeros((nbl_eff, zbins_use, zbins_use))
-    cl_LL_bpw_dav = np.zeros((nbl_eff, zbins_use, zbins_use))
+# ! Plot bpowers
+# TODO: better understand difference between bpw_00, 02, 22, if any
+# TODO: better understand lmin estimate (I could do it direcly from bin_obj...)
+
+# Get bandpower window functions. Convolve the theory power spectra with these as an alternative to the combination
+# of function calls w.decouple_cell(w.couple_cell(cls_theory))
+bpw_00 = w00.get_bandpower_windows()
+bpw_02 = w02.get_bandpower_windows()
+bpw_22 = w22.get_bandpower_windows()
+
+print('lmin_mask:', lmin_mask)
+print('lmax_mask:', lmax_mask)
+print('lmax_bin_obj:',  bin_obj.lmax)
+print('nside:', nside)
+print('fsky after apodization:', fsky)
+
+# cut and bin the theory
+cl_GG_unbinned = cl_GG_unbinned[:lmax, :zbins_use, :zbins_use]
+cl_GL_unbinned = cl_GL_unbinned[:lmax, :zbins_use, :zbins_use]
+cl_LL_unbinned = cl_LL_unbinned[:lmax, :zbins_use, :zbins_use]
+cl_BB_unbinned = np.zeros_like(cl_LL_unbinned)
+cl_TB_unbinned = np.zeros_like(cl_LL_unbinned)
+cl_EB_unbinned = np.zeros_like(cl_LL_unbinned)
+
+# ! Let's now compute the Gaussian estimate of the covariance!
+start_time = time.perf_counter()
+# First we generate a NmtCovarianceWorkspace object to precompute
+# and store the necessary coupling coefficients
+cw = nmt.NmtCovarianceWorkspace()
+# This is the time-consuming operation
+# Note that you only need to do this once, regardless of spin
+print("Computing cov workspace coupling coefficients...")
+# cw.compute_coupling_coefficients(f0[0], f0[0], f0[0], f0[0])
+cw.compute_coupling_coefficients(f0_mask, f0_mask, f0_mask, f0_mask)
+print(f"Coupling coefficients computed in {(time.perf_counter() - start_time):.2f} s...")
+
+# TODO generalize to all zbin cross-correlations; z=0 for the moment
+# shape: (n_cls, n_bpws, n_cls, lmax+1)
+# n_cls is the number of power spectra (1, 2 or 4 for spin 0-0, spin 0-2 and spin 2-2 correlations)
+
+# if coupled:
+#     raise ValueError('coupled case not fully implemented yet')
+#     print('Inputting pseudo-Cls/fsky to use INKA...')
+#     nbl_4covnmt = nbl_tot
+#     cl_GG_4covnmt = pcl_GG_nmt[:, zi, zj] / fsky
+#     cl_GL_4covnmt = pcl_GL_nmt[:, zi, zj] / fsky
+#     cl_LL_4covnmt = pcl_LL_nmt[:, zi, zj] / fsky
+#     cl_GG_4covsb = pcl_GG_nmt  # or bpw_pcl_GG_nmt?
+#     cl_GL_4covsb = pcl_GL_nmt  # or bpw_pcl_GL_nmt?
+#     cl_LL_4covsb = pcl_LL_nmt  # or bpw_pcl_LL_nmt?
+#     ells_4covsb = ells_tot
+#     nbl_4covsb = len(ells_4covsb)
+#     delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
+# else:
+
+nbl_4covnmt = nbl_eff
+ells_4covsb = ells_tot
+nbl_4covsb = len(ells_4covsb)
+delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
+cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
+cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
+cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
+
+if use_INKA:
+    cl_GG_4covnmt = np.zeros_like(cl_GG_unbinned[:, :zbins_use, :zbins_use])
+    cl_GL_4covnmt = np.zeros_like(cl_GL_unbinned[:, :zbins_use, :zbins_use])
+    cl_LL_4covnmt = np.zeros_like(cl_LL_unbinned[:, :zbins_use, :zbins_use])
     for zi in range(zbins_use):
         for zj in range(zbins_use):
-            cl_GG_bpw[:, zi, zj] = bin_obj.bin_cell(cl_GG_unbinned[:, zi, zj])
-            cl_GL_bpw[:, zi, zj] = bin_obj.bin_cell(cl_GL_unbinned[:, zi, zj])
-            cl_LL_bpw[:, zi, zj] = bin_obj.bin_cell(cl_LL_unbinned[:, zi, zj])
-            # these are for a consistency check against bin_obj.bin_cell()
-            cl_GG_bpw_dav[:, zi, zj] = utils.bin_cell(ells_in=ells_bpw, ells_out=ells_eff, ells_out_edges=ells_eff_edges,
-                                                      cls_in=cl_GG_unbinned[ells_bpw, zi, zj], weights=None,
-                                                      ells_eff=ells_eff, which_binning='mean')
-            cl_GL_bpw_dav[:, zi, zj] = utils.bin_cell(ells_in=ells_bpw, ells_out=ells_eff, ells_out_edges=ells_eff_edges,
-                                                      cls_in=cl_GL_unbinned[ells_bpw, zi, zj], weights=None,
-                                                      ells_eff=ells_eff, which_binning='mean')
-            cl_LL_bpw_dav[:, zi, zj] = utils.bin_cell(ells_in=ells_bpw, ells_out=ells_eff, ells_out_edges=ells_eff_edges,
-                                                      cls_in=cl_LL_unbinned[ells_bpw, zi, zj], weights=None,
-                                                      ells_eff=ells_eff, which_binning='mean')
+            cl_GG_4covnmt[:, zi, zj] = w00.couple_cell(cl_GG_unbinned[:, zi, zj]) / fsky
+            cl_GL_4covnmt[:, zi, zj] = w02.couple_cell(cl_GL_unbinned[:, zi, zj]) / fsky
+            cl_LL_4covnmt[:, zi, zj] = w22.couple_cell(cl_LL_unbinned[:, zi, zj]) / fsky
 
-    # generate sample fields
-    # TODO how about the cross-redshifts?
-    f0 = np.empty(zbins_use, dtype=object)
-    f2 = np.empty(zbins_use, dtype=object)
-    for zi in range(zbins_use):
-        map_T, map_Q, map_U = cls_to_maps(cl_TT=cl_GG_unbinned[:, zi, zi],
-                                          cl_EE=cl_LL_unbinned[:, zi, zi],
-                                          cl_BB=cl_BB_unbinned[:, zi, zi],
-                                          cl_TE=cl_GL_unbinned[:, zi, zi],
-                                          nside=nside)
-        f0[zi], f2[zi] = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, lmax=bin_obj.lmax)
+else:
+    cl_GG_4covnmt = cl_GG_unbinned
+    cl_GL_4covnmt = cl_GL_unbinned
+    cl_LL_4covnmt = cl_LL_unbinned
 
-    # Create a map(s) from cl(s) to visualize the simulated - masked - maps, just for fun
-    zi = 0
-    map_t, map_q, map_u = cls_to_maps(cl_TT=cl_GG_unbinned[:, zi, zi],
-                                      cl_EE=cl_LL_unbinned[:, zi, zi],
-                                      cl_BB=cl_BB_unbinned[:, zi, zi],
-                                      cl_TE=cl_GL_unbinned[:, zi, zi],
-                                      nside=nside)
-    hp.mollview(map_t * mask, title=f'masked map T, zi={zi}', cmap='inferno_r')
-    hp.mollview(map_q * mask, title=f'masked map Q, zi={zi}', cmap='inferno_r')
-    hp.mollview(map_u * mask, title=f'masked map U, zi={zi}', cmap='inferno_r')
+cl_tt = cl_GG_4covnmt
+cl_te = cl_GL_4covnmt
+cl_ee = cl_LL_4covnmt
+cl_tb = np.zeros_like(cl_GG_4covnmt)
+cl_eb = np.zeros_like(cl_GG_4covnmt)
+cl_bb = np.zeros_like(cl_GG_4covnmt)
 
-    # ! COMPUTE AND COMPARE DIFFERENT VERSIONS OF THE Cls
-    # with healpy
-    _map_t = hp.remove_monopole(map_t)
-    _map_q = hp.remove_monopole(map_q)
-    _map_u = hp.remove_monopole(map_u)
-    hp_pcl_tot = hp.anafast([_map_t * mask, _map_q * mask, _map_u * mask])
-    hp_pcl_GG = hp_pcl_tot[0, :]
-    hp_pcl_LL = hp_pcl_tot[1, :]
-    hp_pcl_GL = hp_pcl_tot[3, :]
+# ! NAMASTER covariance
+if cfg['spin0']:
+    cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
+                                            cfg['coupled_nmt_cov'], cw, w00, w02, w22, nbl_4covnmt, cfg['compute_all_blocks'])
 
-    # ! updated way, taking into account cross-bins
+else:
+    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt, cl_te=cl_te, cl_ee=cl_ee,
+                                        cl_tb=cl_tb, cl_eb=cl_eb, cl_bb=cl_bb,
+                                        zbins=zbins_use,
+                                        nbl=nbl_eff,
+                                        coupled=cfg['coupled_nmt_cov'],
+                                        cw=cw,
+                                        w00=w00,
+                                        w02=w02,
+                                        w22=w22,
+                                        compute_all_blocks=cfg['compute_all_blocks'])
 
-    cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
-        cl_TT=cl_GG_unbinned,
-        cl_EE=cl_LL_unbinned,
-        cl_BB=cl_BB_unbinned,
-        cl_TE=cl_GL_unbinned,
-        cl_EB=cl_EB_unbinned,
-        cl_TB=cl_TB_unbinned,
-        zbins=zbins_use, spectra_types=['T', 'E', 'B'])
+probename_dict = {
+    'L': 0,
+    'G': 1,
+}
+probename_dict_inv = {
+    '0': 'L',
+    '1': 'G',
+}
 
-    corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
-    assert len(corr_alms_tot) == zbins_use * 3, 'wrong number of alms'
+# # ! BIN COVARIANCE MATRICES IF NEEDED
+# # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
+z_combinations = list(itertools.product(range(zbins_use), repeat=4))
+for zi, zj, zk, zl in z_combinations:
 
-    # extract alm for TT, EE, BB
-    corr_alms = corr_alms_tot[::3]
-    corr_Elms_Blms = list(zip(corr_alms_tot[1::3], corr_alms_tot[2::3]))
+    for i, block_name in enumerate(cov_blocks_names_all):
+        probe_idxs = \
+            probename_dict[block_name[0]], probename_dict[block_name[1]], \
+            probename_dict[block_name[2]], probename_dict[block_name[3]]
 
-    # compute correlated maps for each bin
-    corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms]
-    corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1) for (Elm, Blm) in corr_Elms_Blms]
+        if cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
+            print(f'Binning NaMaster {block_name} covariance')
+            cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
+                utils.bin_2d_matrix(cov=cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl],
+                                    ells_in=ells_tot, ells_out=ells_eff,
+                                    ells_out_edges=ells_eff_edges, weights=None,
+                                    which_binning='mean')
 
-    # # plot for a quick check (these are lots of plots!)
-    # for i in range(len(corr_maps_gg)):
-    #     hp.mollview(corr_maps_gg[i], title='T')
-    # for i in range(len(corr_maps_ll)):
-    #     hp.mollview(corr_maps_ll[i][0], title='Q')
-    #     hp.mollview(corr_maps_ll[i][1], title='U')
+# ! reshape the total 10d arrays to 4d
+ind_use = utils.build_full_ind(triu_tril, row_col_major, zbins_use)
+zpairs_auto_use, zpairs_cross_use, zpairs_3x2pt_use = utils.get_zpairs(zbins_use)
+ind_auto_use = ind_use[:zpairs_auto_use, :].copy()
+ind_cross_use = ind_use[zpairs_auto_use:zpairs_cross_use + zpairs_auto_use, :].copy()
+elem_auto_use = zpairs_auto_use * nbl_eff
+elem_autpluscross_use = (zpairs_auto_use + zpairs_cross_use) * nbl_eff
 
-    # now instantiate the fields
-    f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True, lmax=bin_obj.lmax) for map_T in corr_maps_gg])
-    f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True, lmax=bin_obj.lmax) for (map_Q, map_U) in corr_maps_ll])
+cov_nmt_4d = utils.cov_3x2pt_10D_to_4D(cov_nmt_10d, probe_ordering,
+                                        nbl_eff, zbins_use, ind_use.copy(), GL_or_LG)
 
-    # TODO add noise?
-    cl_GG_master = np.zeros((nbl_eff, zbins_use, zbins_use))
-    cl_GL_master = np.zeros((nbl_eff, zbins_use, zbins_use))
-    cl_LL_master = np.zeros((nbl_eff, zbins_use, zbins_use))
-    pcl_GG_nmt = np.zeros((nbl_tot, zbins_use, zbins_use))
-    pcl_GL_nmt = np.zeros((nbl_tot, zbins_use, zbins_use))
-    pcl_LL_nmt = np.zeros((nbl_tot, zbins_use, zbins_use))
-    bpw_pcl_GG_nmt = np.zeros((nbl_eff, zbins_use, zbins_use))
-    bpw_pcl_GL_nmt = np.zeros((nbl_eff, zbins_use, zbins_use))
-    bpw_pcl_LL_nmt = np.zeros((nbl_eff, zbins_use, zbins_use))
-    hp_pcl_GG = np.zeros((nbl_tot, zbins_use, zbins_use))
-    hp_pcl_GL = np.zeros((nbl_tot, zbins_use, zbins_use))
-    hp_pcl_LL = np.zeros((nbl_tot, zbins_use, zbins_use))
-    print('Computing pseudo-cls for comparison plots...')
-    # for zi in tqdm(range(zbins_use)):
-    #     for zj in range(zbins_use):
-    #         # MASTER estimator:
-    #         cl_GG_master[:, zi, zj] = compute_master(f0[zi], f0[zj], w00)[0, :]
-    #         cl_GL_master[:, zi, zj] = compute_master(f0[zi], f2[zj], w02)[0, :]
-    #         cl_LL_master[:, zi, zj] = compute_master(f2[zi], f2[zj], w22)[0, :]
-    #         # Effectively, this is equivalent to calling the usual HEALPix anafast routine on the masked and contaminant-cleaned maps.
-    #         pcl_GG_nmt[:, zi, zj] = nmt.compute_coupled_cell(f0[zi], f0[zj])[0, :]
-    #         pcl_GL_nmt[:, zi, zj] = nmt.compute_coupled_cell(f0[zi], f2[zj])[0, :]
-    #         pcl_LL_nmt[:, zi, zj] = nmt.compute_coupled_cell(f2[zi], f2[zj])[0, :]
-    #         # * "bandpowers" = binned (pseudo)-C_l
-    #         bpw_pcl_GG_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_GG_nmt[:, zi, zj])
-    #         bpw_pcl_GL_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_GL_nmt[:, zi, zj])
-    #         bpw_pcl_LL_nmt[:, zi, zj] = bin_obj.bin_cell(pcl_LL_nmt[:, zi, zj])
-    #         # * with healpy:
-    #         # 1. build a flat list of the 3 maps for the i and j zbins
-    #         _corr_maps_zi = list(itertools.chain([corr_maps_gg[zi]], corr_maps_ll[zi]))
-    #         _corr_maps_zj = list(itertools.chain([corr_maps_gg[zj]], corr_maps_ll[zj]))
-    #         # 2. remove monopole
-    #         _corr_maps_zi = [hp.remove_monopole(_corr_maps_zi[spec_ix]) for spec_ix in range(3)]
-    #         _corr_maps_zj = [hp.remove_monopole(_corr_maps_zj[spec_ix]) for spec_ix in range(3)]
-    #         # 3. compute cls for each bin
-    #         hp_pcl_tot = hp.anafast(map1=[_corr_maps_zi[0] * mask, _corr_maps_zi[1] * mask, _corr_maps_zi[2] * mask],
-    #                                 map2=[_corr_maps_zj[0] * mask, _corr_maps_zj[1] * mask, _corr_maps_zj[2] * mask])
-    #         # output is TT, EE, BB, TE, EB, TB
-    #         hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :-1]
-    #         hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :-1]
-    #         hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :-1]
+if covariance_ordering_2D == 'probe_ell_zpair':
+    use_2DCLOE = True
+    block_index = 'ell'
+    cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_nmt_4d, zbins_use, block_index=block_index)
 
-    # ! compare results
-    block = 'GLGL'
-    zi, zj = 0, 1
+elif covariance_ordering_2D == 'probe_zpair_ell':
+    use_2DCLOE = True
+    block_index = 'ij'
+    cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_nmt_4d, zbins_use, block_index=block_index)
 
-    # ! Let's now compute the Gaussian estimate of the covariance!
-    start_time = time.perf_counter()
-    # First we generate a NmtCovarianceWorkspace object to precompute
-    # and store the necessary coupling coefficients
-    cw = nmt.NmtCovarianceWorkspace()
-    # This is the time-consuming operation
-    # Note that you only need to do this once, regardless of spin
-    print("Computing cov workspace coupling coefficients...")
-    # cw.compute_coupling_coefficients(f0[0], f0[0], f0[0], f0[0])
-    cw.compute_coupling_coefficients(f0_mask, f0_mask, f0_mask, f0_mask)
-    print(f"Coupling coefficients computed in {(time.perf_counter() - start_time):.2f} s...")
+elif covariance_ordering_2D == 'ell_probe_zpair':
+    use_2DCLOE = False
+    block_index = 'ell'
+    cov_nmt_2d = utils.cov_4D_to_2D(cov_nmt_4d, block_index=block_index, optimize=True)
 
-    # TODO generalize to all zbin cross-correlations; z=0 for the moment
-    # shape: (n_cls, n_bpws, n_cls, lmax+1)
-    # n_cls is the number of power spectra (1, 2 or 4 for spin 0-0, spin 0-2 and spin 2-2 correlations)
+elif covariance_ordering_2D == 'zpair_probe_ell':
+    use_2DCLOE = False
+    block_index = 'ij'
+    cov_nmt_2d = utils.cov_4D_to_2D(cov_nmt_4d, block_index=block_index, optimize=True)
 
-    # if coupled:
-    #     raise ValueError('coupled case not fully implemented yet')
-    #     print('Inputting pseudo-Cls/fsky to use INKA...')
-    #     nbl_4covnmt = nbl_tot
-    #     cl_GG_4covnmt = pcl_GG_nmt[:, zi, zj] / fsky
-    #     cl_GL_4covnmt = pcl_GL_nmt[:, zi, zj] / fsky
-    #     cl_LL_4covnmt = pcl_LL_nmt[:, zi, zj] / fsky
-    #     cl_GG_4covsb = pcl_GG_nmt  # or bpw_pcl_GG_nmt?
-    #     cl_GL_4covsb = pcl_GL_nmt  # or bpw_pcl_GL_nmt?
-    #     cl_LL_4covsb = pcl_LL_nmt  # or bpw_pcl_LL_nmt?
-    #     ells_4covsb = ells_tot
-    #     nbl_4covsb = len(ells_4covsb)
-    #     delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
-    # else:
-
-    nbl_4covnmt = nbl_eff
-    ells_4covsb = ells_tot
-    nbl_4covsb = len(ells_4covsb)
-    delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
-    cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
-    cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
-    cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
-
-    if use_INKA:
-        cl_GG_4covnmt = np.zeros_like(cl_GG_unbinned[:, :zbins_use, :zbins_use])
-        cl_GL_4covnmt = np.zeros_like(cl_GL_unbinned[:, :zbins_use, :zbins_use])
-        cl_LL_4covnmt = np.zeros_like(cl_LL_unbinned[:, :zbins_use, :zbins_use])
-        for zi in range(zbins_use):
-            for zj in range(zbins_use):
-                cl_GG_4covnmt[:, zi, zj] = w00.couple_cell(cl_GG_unbinned[:, zi, zj]) / fsky
-                cl_GL_4covnmt[:, zi, zj] = w02.couple_cell(cl_GL_unbinned[:, zi, zj]) / fsky
-                cl_LL_4covnmt[:, zi, zj] = w22.couple_cell(cl_LL_unbinned[:, zi, zj]) / fsky
-
-        # TODO not super sure about this
-        # cl_GG_4covsb = pcl_GG_nmt[:, :zbins_use, :zbins_use] / fsky
-        # cl_GL_4covsb = pcl_GL_nmt[:, :zbins_use, :zbins_use] / fsky
-        # cl_LL_4covsb = pcl_LL_nmt[:, :zbins_use, :zbins_use] / fsky
-    else:
-        cl_GG_4covnmt = cl_GG_unbinned
-        cl_GL_4covnmt = cl_GL_unbinned
-        cl_LL_4covnmt = cl_LL_unbinned
-        # cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
-        # cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
-        # cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
-
-    cl_tt = cl_GG_4covnmt
-    cl_te = cl_GL_4covnmt
-    cl_ee = cl_LL_4covnmt
-    cl_tb = np.zeros_like(cl_GG_4covnmt)
-    cl_eb = np.zeros_like(cl_GG_4covnmt)
-    cl_bb = np.zeros_like(cl_GG_4covnmt)
-
-    # ! NAMASTER covariance
-    if cfg['spin0']:
-        cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-                                               cfg['coupled_nmt_cov'], cw, w00, w02, w22, nbl_4covnmt, cfg['compute_all_blocks'])
-
-    else:
-        cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt, cl_te=cl_te, cl_ee=cl_ee,
-                                         cl_tb=cl_tb, cl_eb=cl_eb, cl_bb=cl_bb,
-                                         zbins=zbins_use,
-                                         nbl=nbl_eff,
-                                         coupled=cfg['coupled_nmt_cov'],
-                                         cw=cw,
-                                         w00=w00,
-                                         w02=w02,
-                                         w22=w22,
-                                         compute_all_blocks=cfg['compute_all_blocks'])
-
-    probename_dict = {
-        'L': 0,
-        'G': 1,
-    }
-    probename_dict_inv = {
-        '0': 'L',
-        '1': 'G',
-    }
-
-    # ! SAMPLE COVARIANCE - FROM NAMASTER DOCS
-    if cfg['compute_namaster_sims']:
-        probe = block[0] + block[1]
-        cov_sims_nmt = sample_cov_nmt(zi, probe)
-        # Let's plot the error bars (first and second diagonals)
-        l_mid = get_lmid(ells_eff, k=1)
-        plt.figure()
-        plt.title('GG')
-        plt.plot(ells_eff, np.sqrt(np.diag(cov_nmt_plt)), 'r-', label='Analytical, 1st-diag.')
-        plt.plot(l_mid, np.sqrt(np.fabs(np.diag(cov_nmt_plt, k=1))), 'r--', label='Analytical, 2nd-diag.')
-        plt.plot(ells_eff, np.sqrt(np.diag(cov_sims_nmt)), 'g-', label='Simulated, 1st-diag.')
-        plt.plot(l_mid, np.sqrt(np.fabs(np.diag(cov_sims_nmt, k=1))), 'g--', label='Simulated, 2nd-diag.')
-        plt.xlabel(r'$\ell$', fontsize=16)
-        plt.ylabel(r'$\sigma(C_\ell)$', fontsize=16)
-        plt.yscale('log')
-        # plt.xscale('log')
-        plt.legend(fontsize=12, frameon=False)
-        plt.show()
-
-    sample_cov_name = cfg['sample_cov_name'].format(nreal=nreal, nside=nside,
-                                                    int_survey_area_deg2=int(survey_area_deg2),
-                                                    which_cls=which_cls,
-                                                    coupled_cls=str(coupled_cls))
-    # # ! BIN COVARIANCE MATRICES IF NEEDED
-    # # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
-    z_combinations = list(itertools.product(range(zbins_use), repeat=4))
-    for zi, zj, zk, zl in z_combinations:
-
-        for i, block_name in enumerate(cov_blocks_names_all):
-            probe_idxs = \
-                probename_dict[block_name[0]], probename_dict[block_name[1]], \
-                probename_dict[block_name[2]], probename_dict[block_name[3]]
-
-            if cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
-                print(f'Binning NaMaster {block_name} covariance')
-                cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
-                    utils.bin_2d_matrix(cov=cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl],
-                                        ells_in=ells_tot, ells_out=ells_eff,
-                                        ells_out_edges=ells_eff_edges, weights=None,
-                                        which_binning='mean')
-
-
-    # ! reshape the total 10d arrays to 4d
-    ind_use = utils.build_full_ind(triu_tril, row_col_major, zbins_use)
-    zpairs_auto_use, zpairs_cross_use, zpairs_3x2pt_use = utils.get_zpairs(zbins_use)
-    ind_auto_use = ind_use[:zpairs_auto_use, :].copy()
-    ind_cross_use = ind_use[zpairs_auto_use:zpairs_cross_use + zpairs_auto_use, :].copy()
-    elem_auto_use = zpairs_auto_use * nbl_eff
-    elem_autpluscross_use = (zpairs_auto_use + zpairs_cross_use) * nbl_eff
-
-    cov_nmt_4d = utils.cov_3x2pt_10D_to_4D(cov_nmt_10d, probe_ordering,
-                                           nbl_eff, zbins_use, ind_use.copy(), GL_or_LG)
-
-    # ! reshape to 2d
-    # ell-probe-zpair ordering
-    # cov_nmt_2d = utils.cov_4D_to_2D(cov_nmt_4d, block_index='ij', optimize=True)
-    # cov_sb_2d = utils.cov_4D_to_2D(cov_sb_4d, block_index='vincenzo', optimize=True)
-
-    # probe-ell-zpair ordering
-    cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_nmt_4d, zbins_use, block_index='ell')
-
-
-    np.save(f'{output_folder}/cov_Gauss_3x2pt_2D_probe-ell-zpair.npy', cov_nmt_2d)
+np.save(f'{output_folder}/cov_Gauss_3x2pt_2D_probe-ell-zpair.npy', cov_nmt_2d)
