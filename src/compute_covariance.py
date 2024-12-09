@@ -422,12 +422,9 @@ import pymaster as nmt
 ells_unbinned = np.arange(cl_LL_unbinned.shape[0])
 ells_per_band = cfg['ells_per_band']
 nside = cfg['nside']
-nreal = cfg['nreal']
 zbins_use = cfg['zbins_use']
 use_INKA = cfg['use_INKA']
 which_cls = cfg['which_cls']
-
-coupled_cls_label = 'coupled_cls' if coupled_cls else 'uncoupled_cls'
 
 if use_INKA and cfg['coupled_nmt_cov'] :
     raise ValueError('Cannot do iNKA for coupled Cls covariance.')

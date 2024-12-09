@@ -44,7 +44,7 @@ nside: 512  # nside of the healpix mask and maps
 apodize_mask: True
 aposize: 0.1 # apodization scale in deg
 ells_per_band: 50 # number of multipole values per bandpower
-coupled_nmt_cov: True  # compute the covariance of the coupled or uncoupled cls
+coupled_nmt_cov: False  # compute the covariance of the coupled or uncoupled cls
 compute_all_blocks: False  # compute all probe blocks of the nmt covariance
 which_ell_weights: get_weight_list()  # get_weight_list() or get_bandpower_windows()
 which_cls: namaster  # namaster or healpy
@@ -54,7 +54,7 @@ spin0: True
 # datavector and covariance ordering options
 triu_tril: "triu" # or 'tril'. Which elements of the (symmetric) auto-spectra are kept
 row_col_major: "row-major" # whether the flattening of the spectra is in row-major or column-major order
-covariance_ordering_2D: "probe-ell-zpair" # must be one of ['probe_ell_zpair', 'probe_zpair_ell', 'ell_probe_zpair', 'zpair_probe_ell']
+covariance_ordering_2D: "probe-zpair-ell" # must be one of ['probe_ell_zpair', 'probe_zpair_ell', 'ell_probe_zpair', 'zpair_probe_ell']
 # the naming convention is to have the outermost loop on the left, and the innermost loop on the right; so, e.g.,
 # probe_ell_zpair means that the outermost loop is on the probes, the middle loop is on ell and the innermost loop is on zpair
 # CLOE v1 needs as input the ell_probe_zpair ordering.
