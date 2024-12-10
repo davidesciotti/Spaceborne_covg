@@ -567,14 +567,6 @@ print(f"Coupling coefficients computed in {(time.perf_counter() - start_time):.2
 #     delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
 # else:
 
-nbl_4covnmt = nbl_eff
-ells_4covsb = ells_tot
-nbl_4covsb = len(ells_4covsb)
-delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
-cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
-cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
-cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
-
 if use_INKA:
     cl_GG_4covnmt = np.zeros_like(cl_GG_unbinned)
     cl_GL_4covnmt = np.zeros_like(cl_GL_unbinned)
@@ -604,20 +596,49 @@ cl_bb = np.zeros_like(cl_GG_4covnmt)
 
 # ! NAMASTER covariance
 if cfg['spin0']:
-    cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-                                            cfg['coupled_nmt_cov'], cw, w00, w02, w22, nbl_4covnmt, cfg['compute_all_blocks'])
+    if cfg['coupled_nmt_cov']:
+        cov_nmt_10d = utils.nmt_gaussian_cov_spin0_coupled(cl_tt=cl_tt,
+                                                           cl_te=cl_te,
+                                                           cl_ee=cl_ee,
+                                                           zbins=zbins_use,
+                                                           nbl=nbl_eff,
+                                                           cw=cw, w00=w00,
+                                                           ells_in=ells_tot,
+                                                           ells_out=ells_eff,
+                                                           ells_out_edges=ells_eff_edges,
+                                                           weights=None,
+                                                           which_binning='mean')
+    else:
+        cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt=cl_tt,
+                                                   cl_te=cl_te,
+                                                   cl_ee=cl_ee,
+                                                   zbins=zbins_use,
+                                                   nbl=nbl_eff,
+                                                   cw=cw, w00=w00)
+
 
 else:
-    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt, cl_te=cl_te, cl_ee=cl_ee,
-                                        cl_tb=cl_tb, cl_eb=cl_eb, cl_bb=cl_bb,
-                                        zbins=zbins_use,
-                                        nbl=nbl_eff,
-                                        coupled=cfg['coupled_nmt_cov'],
-                                        cw=cw,
-                                        w00=w00,
-                                        w02=w02,
-                                        w22=w22,
-                                        compute_all_blocks=cfg['compute_all_blocks'])
+    if cfg['coupled_nmt_cov']:
+        cov_nmt_10d = utils.nmt_gaussian_cov_coupled(cl_tt=cl_tt, cl_te=cl_te,
+                                                     cl_ee=cl_ee, cl_tb=cl_tb,
+                                                     cl_eb=cl_eb, cl_bb=cl_bb,
+                                                     zbins=zbins_use,
+                                                     nbl=nbl_eff,
+                                                     cw=cw, w00=w00, w02=w02, w22=w22,
+                                                     compute_all_blocks=cfg['compute_all_blocks'],
+                                                     ells_in=ells_tot,
+                                                     ells_out=ells_eff,
+                                                     ells_out_edges=ells_eff_edges,
+                                                     weights=None,
+                                                     which_binning='mean')
+
+    else:
+        cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt, cl_te=cl_te, cl_ee=cl_ee,
+                                            cl_tb=cl_tb, cl_eb=cl_eb, cl_bb=cl_bb,
+                                            zbins=zbins_use,
+                                            nbl=nbl_eff,
+                                            cw=cw, w00=w00, w02=w02, w22=w22,
+                                            compute_all_blocks=cfg['compute_all_blocks'])
 
 probename_dict = {
     'L': 0,
@@ -628,24 +649,24 @@ probename_dict_inv = {
     '1': 'G',
 }
 
-# # ! BIN COVARIANCE MATRICES IF NEEDED
-# # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
-z_combinations = list(itertools.product(range(zbins_use), repeat=4))
-cov_nmt_10d_binned = np.zeros((2, 2, 2, 2, nbl_eff, nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
-for zi, zj, zk, zl in z_combinations:
-    for i, block_name in enumerate(cov_blocks_names_all):
-        probe_idxs = \
-            probename_dict[block_name[0]], probename_dict[block_name[1]], \
-            probename_dict[block_name[2]], probename_dict[block_name[3]]
+# # # ! BIN COVARIANCE MATRICES IF NEEDED
+# # # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
+# z_combinations = list(itertools.product(range(zbins_use), repeat=4))
+# cov_nmt_10d_binned = np.zeros((2, 2, 2, 2, nbl_eff, nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
+# for zi, zj, zk, zl in z_combinations:
+#     for i, block_name in enumerate(cov_blocks_names_all):
+#         probe_idxs = \
+#             probename_dict[block_name[0]], probename_dict[block_name[1]], \
+#             probename_dict[block_name[2]], probename_dict[block_name[3]]
 
-        if cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
-            print(f'Binning NaMaster {block_name} covariance')
-            cov_nmt_10d_binned[probe_idxs][:, :, zi, zj, zk, zl] = \
-                utils.bin_2d_matrix(cov=cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl],
-                                    ells_in=ells_tot, ells_out=ells_eff,
-                                    ells_out_edges=ells_eff_edges, weights=None,
-                                    which_binning='mean')
-cov_nmt_10d = cov_nmt_10d_binned
+#         if cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
+#             print(f'Binning NaMaster {block_name} covariance')
+#             cov_nmt_10d_binned[probe_idxs][:, :, zi, zj, zk, zl] = \
+#                 utils.bin_2d_matrix(cov=cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl],
+#                                     ells_in=ells_tot, ells_out=ells_eff,
+#                                     ells_out_edges=ells_eff_edges, weights=None,
+#                                     which_binning='mean')
+# cov_nmt_10d = cov_nmt_10d_binned
 
 
 # ! reshape the total 10d arrays to 4d
