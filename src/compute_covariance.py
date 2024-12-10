@@ -631,8 +631,8 @@ probename_dict_inv = {
 # # ! BIN COVARIANCE MATRICES IF NEEDED
 # # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
 z_combinations = list(itertools.product(range(zbins_use), repeat=4))
+cov_nmt_10d_binned = np.zeros((2, 2, 2, 2, nbl_eff, nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
 for zi, zj, zk, zl in z_combinations:
-
     for i, block_name in enumerate(cov_blocks_names_all):
         probe_idxs = \
             probename_dict[block_name[0]], probename_dict[block_name[1]], \
@@ -640,11 +640,13 @@ for zi, zj, zk, zl in z_combinations:
 
         if cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
             print(f'Binning NaMaster {block_name} covariance')
-            cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
+            cov_nmt_10d_binned[probe_idxs][:, :, zi, zj, zk, zl] = \
                 utils.bin_2d_matrix(cov=cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl],
                                     ells_in=ells_tot, ells_out=ells_eff,
                                     ells_out_edges=ells_eff_edges, weights=None,
                                     which_binning='mean')
+cov_nmt_10d = cov_nmt_10d_binned
+
 
 # ! reshape the total 10d arrays to 4d
 ind_use = utils.build_full_ind(triu_tril, row_col_major, zbins_use)

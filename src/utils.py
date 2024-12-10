@@ -215,7 +215,11 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, coupl
     cl_be = cl_eb.transpose(0, 2, 1)  # not so sure about this but it's 0 for the moment
 
     print('Computing partial-sky Gaussian covariance with NaMaster...')
-    cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl, nbl, zbins, zbins, zbins, zbins))
+    if coupled :
+        nbl = cl_tt.shape[0]
+        cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl, nbl, zbins, zbins, zbins, zbins))
+    else :
+        cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl, nbl, zbins, zbins, zbins, zbins))
 
     def cl_00_list(zi, zj):
         return [cl_tt[:, zi, zj]]
@@ -384,14 +388,20 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, coupl
     return cov_nmt_10d_arr
 
 
-def nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff, coupled, cw, w00, w02, w22,
+def nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, coupled, cw, w00, w02, w22,
                            nbl_4covnmt, compute_all_blocks):
 
     cl_et = cl_te.transpose(0, 2, 1)
 
     print('Computing spin-0 partial-sky Gaussian covariance with NaMaster...')
-    cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl_eff, nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
-    z_combinations = list(itertools.product(range(zbins_use), repeat=4))
+
+    if coupled :
+        nbl = cl_tt.shape[0]
+        cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl, nbl, zbins, zbins, zbins, zbins))
+    else :
+        cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl, nbl, zbins, zbins, zbins, zbins))
+
+    z_combinations = list(itertools.product(range(zbins), repeat=4))
     for zi, zj, zk, zl in tqdm(z_combinations):
 
         covar_00_00 = nmt.gaussian_covariance(cw,

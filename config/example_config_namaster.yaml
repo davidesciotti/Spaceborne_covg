@@ -44,11 +44,11 @@ nside: 512  # nside of the healpix mask and maps
 apodize_mask: True
 aposize: 0.1 # apodization scale in deg
 ells_per_band: 50 # number of multipole values per bandpower
-coupled_nmt_cov: False  # compute the covariance of the coupled or uncoupled cls
+coupled_nmt_cov: True  # compute the covariance of the coupled or uncoupled cls
 compute_all_blocks: False  # compute all probe blocks of the nmt covariance
 which_ell_weights: get_weight_list()  # get_weight_list() or get_bandpower_windows()
 which_cls: namaster  # namaster or healpy
-use_INKA: True
+use_INKA: False
 spin0: True
 
 # datavector and covariance ordering options
