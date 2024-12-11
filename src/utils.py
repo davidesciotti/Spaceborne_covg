@@ -951,8 +951,7 @@ def covariance_einsum(cl_5d, noise_5d, f_sky, ell_values, delta_ell, return_only
     cov_9d = np.einsum('ABCDLijkl, L -> ABCDLijkl', term_1 + term_2, prefactor)
 
     if return_only_diagonal_ells:
-        warnings.warn('return_only_diagonal_ells is True, the array will be 9-dimensional, potentially causing '
-                      'problems when reshaping or summing to cov_SSC arrays')
+        warnings.warn('return_only_diagonal_ells is True, the array will be 9-dimensional')
         return cov_9d
 
     n_probes = cov_9d.shape[0]
