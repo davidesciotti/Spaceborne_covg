@@ -1,7 +1,4 @@
-import gc
 import itertools
-import json
-import sys
 import time
 import warnings
 from matplotlib import cm
@@ -9,8 +6,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 import yaml
-from scipy.interpolate import interp1d, RectBivariateSpline, RegularGridInterpolator, CubicSpline, UnivariateSpline
-from copy import deepcopy
 import utils
 import os
 ROOT = os.getenv("ROOT")
@@ -235,27 +230,6 @@ def compute_master(f_a, f_b, wsp):
     cl_decoupled = wsp.decouple_cell(cl_coupled)
     return cl_decoupled
 
-
-def find_ellmin_from_bpw(bpw, ells, threshold):
-
-    # Calculate cumulative weight to find ell_min
-    cumulative_weight = np.cumsum(bpw[0, :, 0, :], axis=-1)
-
-    ell_min = []
-    for i in range(bpw.shape[0]):
-        idx = np.where(cumulative_weight[i] > threshold)[0]
-        if len(idx) > 0:
-            ell_min.append(ells[idx[0]])
-        else:
-            print(f"No index found for band {i} with cumulative weight > {threshold}")
-
-    if ell_min:
-        ell_min = int(np.ceil(np.mean(ell_min)))
-        print(f"Estimated ell_min: {ell_min}")
-    else:
-        print("ell_min array is empty")
-
-    return ell_min
 
 
 def produce_correlated_maps(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, nreal, nside, zbins_use):
@@ -552,7 +526,8 @@ if part_sky:
     fsky = np.mean(mask**2)
     survey_area_deg2 = fsky * utils.DEG2_IN_SPHERE
 
-    # TODO check np.all(mask == 1)
+    if fsky == 1:
+        np.testing.assert_allclose(mask, np.ones_like(mask), atol=0, rtol=1e-6)
 
     # apodize
     hp.mollview(mask, title='before apodization', cmap='inferno_r')
@@ -578,39 +553,43 @@ if part_sky:
     lmax_healpy_safe = int(1.5 * nside)  # TODO test this
     lmax = lmax_healpy
 
-    # get lmin: quick estimate
-    survey_area_rad = np.sum(mask) * hp.nside2pixarea(nside)
-    lmin_mask = int(np.ceil(np.pi / np.sqrt(survey_area_rad)))
+    # get lmin: quick and dirty (and liely too optimistic) estimate
+    survey_area_sterad = np.sum(mask) * hp.nside2pixarea(nside)
+    lmin_mask = int(np.ceil(np.pi / np.sqrt(survey_area_sterad)))
 
     # ! Define the set of bandpowers used in the computation of the pseudo-Cl
     # Initialize binning scheme with bandpowers of constant width (ells_per_band multipoles per bin)
     # TODO use lmax_mask instead of nside? Decide which binning scheme is the best
     # ell_values, delta_values, ell_bin_edges = utils.compute_ells(nbl, 0, lmax, recipe='ISTF', output_ell_bin_edges=True)
-    # bin_obj = nmt.NmtBin.from_edges(ell_bin_edges[:-1].astype(int), ell_bin_edges[1:].astype(int), is_Dell=False, f_ell=None)
-    bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
-    # bin_obj = nmt.NmtBin.from_edges(
-    # ell_bin_lower_edges.astype(int),
-    # ell_bin_upper_edges.astype(int), is_Dell=False, f_ell=None)
+    # * original
+    # bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
+    # * new
+    bin_obj = nmt.NmtBin.from_edges(ell_bin_lower_edges.astype(int), ell_bin_upper_edges.astype(int))
     # bin_obj = nmt.NmtBin.from_lmax_linear(lmax=lmax, nlb=ells_per_band, is_Dell=False, f_ell=None) # TODO test this
 
     ells_eff = bin_obj.get_effective_ells()  # get effective ells per bandpower
-    ells_tot = np.arange(lmax)
     nbl_eff = len(ells_eff)
-    nbl_tot = len(ells_tot)
+    
     ells_eff_edges = np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)])
+    # bin_obj.get_ell_list(nbl_eff) is out of bounds
     ells_eff_edges = np.append(ells_eff_edges, bin_obj.get_ell_list(nbl_eff - 1)[-1] + 1)  # careful f the +1!
     lmin_eff = ells_eff_edges[0]
     lmax_eff = ells_eff_edges[-1]
+    
+    ells_tot = np.arange(lmax_eff) + 1
+    nbl_tot = len(ells_tot)
+    
     ells_bpw = ells_tot[lmin_eff:lmax_eff]
     delta_ells_bpw = np.diff(np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)]))
-    assert np.all(delta_ells_bpw == ells_per_band), 'delta_ell from bpw does not match ells_per_band'
+    # assert np.all(delta_ells_bpw == ells_per_band), 'delta_ell from bpw does not match ells_per_band'
+
 
     # ! create nmt field from the mask (there will be no maps associated to the fields)
     # TODO maks=None (as in the example) or maps=[mask]? I think None
     start_time = time.perf_counter()
     print('computing coupling coefficients...')
-    f0_mask = nmt.NmtField(mask=mask, maps=None, spin=0, lite=True)
-    f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True)
+    f0_mask = nmt.NmtField(mask=mask, maps=None, spin=0, lite=True, lmax=lmax_eff-1)
+    f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True, lmax=lmax_eff-1)
     w00 = nmt.NmtWorkspace()
     w02 = nmt.NmtWorkspace()
     w22 = nmt.NmtWorkspace()
@@ -633,6 +612,7 @@ if part_sky:
         ell_weights = np.array([bin_obj.get_weight_list(ell_idx)
                                 for ell_idx in range(nbl_eff)]).flatten()  # get effective ells per bandpower
     elif cfg['which_ell_weights'] == 'get_bandpower_windows()':
+        raise ValueError("Case not tested")
         warnings.warn('Using bpw_00 as ell_weights')
         ell_weights = bpw_00[0, :, 0]
 
@@ -646,8 +626,6 @@ if part_sky:
     assert bpw_00.shape[1] == bpw_02.shape[1] == bpw_22.shape[1], \
         "The number of bandpower windows must be the same for all fields"
 
-    # Plotting bandpower windows and ell_min
-    lmin_bpw = find_ellmin_from_bpw(bpw_00, ells=ells_tot, threshold=0.95)
 
     clr = cm.rainbow(np.linspace(0, 1, bpw_00.shape[1]))
     plt.figure(figsize=(10, 6))
@@ -660,12 +638,12 @@ if part_sky:
     for i in range(nbl_eff + 1):
         plt.axvline(ells_eff_edges[i], c='k', ls='--')
 
-    plt.axvline(lmin_bpw, color='r', linestyle='--', label='Estimated ell_min')
     plt.xlabel(r'$\ell$')
     plt.ylabel('Window function')
     plt.title('Bandpower Window Functions')
     plt.legend()
     plt.show()
+
     # TODO finish checking lmin
     # ! end get lmin: better estimate
 
@@ -678,9 +656,9 @@ if part_sky:
     print('survey area after apodization:', survey_area_deg2, 'deg2')
 
     # cut and bin the theory
-    cl_GG_unbinned = cl_GG_unbinned[:lmax, :zbins_use, :zbins_use]
-    cl_GL_unbinned = cl_GL_unbinned[:lmax, :zbins_use, :zbins_use]
-    cl_LL_unbinned = cl_LL_unbinned[:lmax, :zbins_use, :zbins_use]
+    cl_GG_unbinned = cl_GG_unbinned[:lmax_eff, :zbins_use, :zbins_use]
+    cl_GL_unbinned = cl_GL_unbinned[:lmax_eff, :zbins_use, :zbins_use]
+    cl_LL_unbinned = cl_LL_unbinned[:lmax_eff, :zbins_use, :zbins_use]
     cl_BB_unbinned = np.zeros_like(cl_LL_unbinned)
     cl_TB_unbinned = np.zeros_like(cl_LL_unbinned)
     cl_EB_unbinned = np.zeros_like(cl_LL_unbinned)
@@ -950,7 +928,7 @@ if part_sky:
     cl_tb_4covnmt = np.zeros_like(cl_tt_4covnmt)
     cl_eb_4covnmt = np.zeros_like(cl_tt_4covnmt)
     cl_bb_4covnmt = np.zeros_like(cl_tt_4covnmt)
-    
+
     cl_tt_4covsim = cl_GG_unbinned + noise_3x2pt_5d[1, 1, :, :, :]
     cl_te_4covsim = cl_GL_unbinned + noise_3x2pt_5d[1, 0, :, :, :]
     cl_ee_4covsim = cl_LL_unbinned + noise_3x2pt_5d[0, 0, :, :, :]
@@ -998,6 +976,7 @@ if part_sky:
     #         for ell_idx in range(nbl_4covsb):
     #             noise_3x2pt_5d[probe_A, probe_B, ell_idx, :, :] = noise_3x2pt_4d[probe_A, probe_B, ...]
 
+    # TODO return only diag
     cov_sb_10d = utils.covariance_einsum(cl_3x2pt_5d, noise_3x2pt_5d, fsky,
                                          ells_4covsb, delta_ells_4covsb)
     bin_cov_sb_10d = np.zeros((n_probes, n_probes, n_probes, n_probes, nbl_eff,
@@ -1022,8 +1001,8 @@ if part_sky:
         plt.legend(fontsize=12, frameon=False)
         plt.show()
     settings_dict = {'nreal': nreal, 'nside': nside, 'int_survey_area_deg2': int(survey_area_deg2),
-                      'which_cls': which_cls, 'coupled_cls': str(coupled_cls), 'use_INKA': str(use_INKA),
-                      'zbins_use': zbins_use}
+                     'which_cls': which_cls, 'coupled_cls': str(coupled_cls), 'use_INKA': str(use_INKA),
+                     'zbins_use': zbins_use}
     sample_cov_name = cfg['sample_cov_name'].format(**settings_dict)
     # ! SAMPLE COVARIANCE
     if cfg['load_sample_cov']:
@@ -1039,9 +1018,9 @@ if part_sky:
         if cfg['save_sample_cov']:
             np.save(sample_cov_name, cov_sim_10d)
         if cfg['save_sim_maps']:
-            np.save(cfg['sim_cls_name'].format(probe = 'GG', **settings_dict), sim_cl_GG)
-            np.save(cfg['sim_cls_name'].format(probe = 'GL', **settings_dict), sim_cl_GL)
-            np.save(cfg['sim_cls_name'].format(probe = 'LL', **settings_dict), sim_cl_LL)
+            np.save(cfg['sim_cls_name'].format(probe='GG', **settings_dict), sim_cl_GG)
+            np.save(cfg['sim_cls_name'].format(probe='GL', **settings_dict), sim_cl_GL)
+            np.save(cfg['sim_cls_name'].format(probe='LL', **settings_dict), sim_cl_LL)
 
     # # ! BIN COVARIANCE MATRICES IF NEEDED
     # # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
@@ -1281,7 +1260,7 @@ if part_sky:
     # ! PLOT SINGLE PROBE AND zijkl BLOCK
     # no delta_ell if you're using the pseudo-cls in the gaussian_simulations func!!
     zi, zj, zk, zl = 1, 0, 1, 1
-    block = 'GLGL'
+    block = 'GGGL'
 
     probe_idxs = \
         probename_dict[block[0]], probename_dict[block[1]], \
@@ -1326,8 +1305,8 @@ if part_sky:
                marker='.', label='sb/nmt', c='tab:orange')
     ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sim_plt), np.diag(cov_nmt_plt)),
                marker='.', label='sim/nmt, k=0', c=clr[1], ls='-')
-    ax[1].plot(get_lmid(ells_eff, k=1), utils.percent_diff(np.diag(cov_sim_plt, k=1), np.diag(cov_nmt_plt, k=1)),
-               marker='.', label='sim/nmt, k=1', c=clr[1], ls='--')
+    # ax[1].plot(get_lmid(ells_eff, k=1), utils.percent_diff(np.diag(cov_sim_plt, k=1), np.diag(cov_nmt_plt, k=1)),
+    #            marker='.', label='sim/nmt, k=1', c=clr[1], ls='--')
 
     ax[1].set_ylabel('% diff cov fsky/part_sky')
     ax[1].set_xlabel(r'$\ell$')
@@ -1430,7 +1409,7 @@ if part_sky:
     chi2_sim = np.array(chi2_sim)
     chi2_nmt = np.array(chi2_nmt)
     chi2_sb = np.array(chi2_sb)
-    
+
     # Define the range of chi-squared values for the theoretical curve
     dof = sim_cl_3x2pt.shape[1]
     # chi2_th = np.random.chisquare(df=dof, size=10000)  # nmt chi2 values
@@ -1438,7 +1417,6 @@ if part_sky:
     chi2_values = np.linspace(np.min(chi2_sim), np.max(chi2_sim), 1000)
     chi2_pdf = chi2.pdf(chi2_values, df=dof)
 
-    
     mean_chi2_sim = np.mean(chi2_sim)
     mean_chi2_nmt = np.mean(chi2_nmt)
     mean_chi2_sb = np.mean(chi2_sb)
@@ -1458,10 +1436,10 @@ if part_sky:
     plt.xlabel(r'$\chi^2$')
     plt.ylabel('counts')
     plt.legend()
-    
-    nmt_sim_shift = (mean_chi2_sim - mean_chi2_nmt)/np.sqrt(var_chi2_sim)
-    plt.title(r'$\langle \chi^2_{sim} \rangle - \langle \chi^2_{nmt} \rangle = %.2f \sigma_{sim}$' % nmt_sim_shift + '\n' + 
-            r'$\sigma_{sim} = %.2f$, $\sigma_{nmt}=%.2f$' % (np.sqrt(var_chi2_sim), np.sqrt(var_chi2_nmt)))
+
+    nmt_sim_shift = (mean_chi2_sim - mean_chi2_nmt) / np.sqrt(var_chi2_sim)
+    plt.title(r'$\langle \chi^2_{sim} \rangle - \langle \chi^2_{nmt} \rangle = %.2f \sigma_{sim}$' % nmt_sim_shift + '\n' +
+              r'$\sigma_{sim} = %.2f$, $\sigma_{nmt}=%.2f$' % (np.sqrt(var_chi2_sim), np.sqrt(var_chi2_nmt)))
     plt.show()
 
     # now plot the eigenvalues
