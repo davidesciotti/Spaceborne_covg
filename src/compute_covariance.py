@@ -939,18 +939,51 @@ if part_sky:
     cl_bb = np.zeros_like(cl_GG_4covnmt)
 
     # ! NAMASTER covariance
-    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt, cl_te=cl_te, cl_ee=cl_ee,
-                                         cl_tb=cl_tb, cl_eb=cl_eb, cl_bb=cl_bb,
-                                         zbins=zbins_use,
-                                         nbl=nbl_eff,
-                                         coupled=cfg['coupled_nmt_cov'],
-                                         cw=cw,
-                                         w00=w00,
-                                         w02=w02,
-                                         w22=w22,
-                                         compute_all_blocks=cfg['compute_all_blocks'])
-    # cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-    #                                            coupled, cw, w00, w02, w22, nbl_4covnmt)
+    # ! NAMASTER covariance
+if cfg['spin0']:
+    if cfg['coupled_nmt_cov']:
+        cov_nmt_10d = utils.nmt_gaussian_cov_spin0_coupled(cl_tt=cl_tt,
+                                                           cl_te=cl_te,
+                                                           cl_ee=cl_ee,
+                                                           zbins=zbins_use,
+                                                           nbl=nbl_eff,
+                                                           cw=cw, w00=w00,
+                                                           ells_in=ells_tot,
+                                                           ells_out=ells_eff,
+                                                           ells_out_edges=ells_eff_edges,
+                                                           weights=None,
+                                                           which_binning='mean')
+    else:
+        cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt=cl_tt,
+                                                   cl_te=cl_te,
+                                                   cl_ee=cl_ee,
+                                                   zbins=zbins_use,
+                                                   nbl=nbl_eff,
+                                                   cw=cw, w00=w00)
+
+
+else:
+    if cfg['coupled_nmt_cov']:
+        cov_nmt_10d = utils.nmt_gaussian_cov_coupled(cl_tt=cl_tt, cl_te=cl_te,
+                                                     cl_ee=cl_ee, cl_tb=cl_tb,
+                                                     cl_eb=cl_eb, cl_bb=cl_bb,
+                                                     zbins=zbins_use,
+                                                     nbl=nbl_eff,
+                                                     cw=cw, w00=w00, w02=w02, w22=w22,
+                                                     compute_all_blocks=cfg['compute_all_blocks'],
+                                                     ells_in=ells_tot,
+                                                     ells_out=ells_eff,
+                                                     ells_out_edges=ells_eff_edges,
+                                                     weights=None,
+                                                     which_binning='mean')
+
+    else:
+        cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt, cl_te=cl_te, cl_ee=cl_ee,
+                                            cl_tb=cl_tb, cl_eb=cl_eb, cl_bb=cl_bb,
+                                            zbins=zbins_use,
+                                            nbl=nbl_eff,
+                                            cw=cw, w00=w00, w02=w02, w22=w22,
+                                            compute_all_blocks=cfg['compute_all_blocks'])
 
     probename_dict = {
         'L': 0,
@@ -1036,13 +1069,13 @@ if part_sky:
                                         ells_out_edges=ells_eff_edges, weights=None,
                                         which_binning='mean')
 
-            if cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
-                print(f'Binning NaMaster {block_name} covariance')
-                cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
-                    utils.bin_2d_matrix(cov=cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl],
-                                        ells_in=ells_tot, ells_out=ells_eff,
-                                        ells_out_edges=ells_eff_edges, weights=None,
-                                        which_binning='mean')
+            # if cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
+            #     print(f'Binning NaMaster {block_name} covariance')
+            #     cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
+            #         utils.bin_2d_matrix(cov=cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl],
+            #                             ells_in=ells_tot, ells_out=ells_eff,
+            #                             ells_out_edges=ells_eff_edges, weights=None,
+            #                             which_binning='mean')
 
             if cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
                 print(f'Binning sample {block_name} covariance')
