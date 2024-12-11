@@ -198,7 +198,7 @@ def cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside):
     return map_T, map_Q, map_U
 
 
-def masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, n_iter=0, lite=True):
+def masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, lmax, n_iter=0, lite=True):
     """
     Create NmtField objects from masked maps.
 
@@ -211,8 +211,8 @@ def masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, n_iter=0, lite=True):
     Returns:
         nmt.NmtField, nmt.NmtField: NmtField objects for the temperature and polarization maps.
     """
-    f0 = nmt.NmtField(mask, [map_T], n_iter=n_iter, lite=lite)
-    f2 = nmt.NmtField(mask, [map_Q, map_U], spin=2, n_iter=n_iter, lite=lite)
+    f0 = nmt.NmtField(mask, [map_T], n_iter=n_iter, lite=lite, lmax=lmax)
+    f2 = nmt.NmtField(mask, [map_Q, map_U], spin=2, n_iter=n_iter, lite=lite, lmax=lmax)
     return f0, f2
 
 
@@ -566,6 +566,17 @@ if part_sky:
     # * new
     bin_obj = nmt.NmtBin.from_edges(ell_bin_lower_edges.astype(int), ell_bin_upper_edges.astype(int))
     # bin_obj = nmt.NmtBin.from_lmax_linear(lmax=lmax, nlb=ells_per_band, is_Dell=False, f_ell=None) # TODO test this
+    # bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
+    bin_obj = nmt.NmtBin.from_edges(
+    ell_bin_lower_edges.astype(int),
+    ell_bin_upper_edges.astype(int), is_Dell=False, f_ell=None)
+
+    # set different possible values for lmax
+    lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
+    lmax_healpy = 3 * nside
+    # to be safe, following https://heracles.readthedocs.io/stable/examples/example.html
+    lmax_healpy_safe = int(1.5 * nside)
+    lmax = bin_obj.lmax + 1
 
     ells_eff = bin_obj.get_effective_ells()  # get effective ells per bandpower
     nbl_eff = len(ells_eff)
@@ -590,6 +601,8 @@ if part_sky:
     print('computing coupling coefficients...')
     f0_mask = nmt.NmtField(mask=mask, maps=None, spin=0, lite=True, lmax=lmax_eff-1)
     f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True, lmax=lmax_eff-1)
+    f0_mask = nmt.NmtField(mask=mask, maps=None, spin=0, lite=True, lmax=bin_obj.lmax)
+    f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True, lmax=bin_obj.lmax)
     w00 = nmt.NmtWorkspace()
     w02 = nmt.NmtWorkspace()
     w22 = nmt.NmtWorkspace()
@@ -616,15 +629,15 @@ if part_sky:
         warnings.warn('Using bpw_00 as ell_weights')
         ell_weights = bpw_00[0, :, 0]
 
-        # interpolate on ells_bpw
-        # ell_weights = np.zeros((nbl_eff, len(ells_bpw)))
-        # for ell_idx in range(nbl_eff):
-        # ell_weights[ell_idx, :] = np.interp(ells_bpw, ells_tot, _ell_weights[ell_idx, :])
-    else:
-        raise ValueError(f"Invalid value for 'which_ell_weights': {cfg['which_ell_weights']}")
+    #     # interpolate on ells_bpw
+    #     # ell_weights = np.zeros((nbl_eff, len(ells_bpw)))
+    #     # for ell_idx in range(nbl_eff):
+    #     # ell_weights[ell_idx, :] = np.interp(ells_bpw, ells_tot, _ell_weights[ell_idx, :])
+    # else:
+    #     raise ValueError(f"Invalid value for 'which_ell_weights': {cfg['which_ell_weights']}")
 
-    assert bpw_00.shape[1] == bpw_02.shape[1] == bpw_22.shape[1], \
-        "The number of bandpower windows must be the same for all fields"
+    # assert bpw_00.shape[1] == bpw_02.shape[1] == bpw_22.shape[1], \
+    #     "The number of bandpower windows must be the same for all fields"
 
 
     clr = cm.rainbow(np.linspace(0, 1, bpw_00.shape[1]))
@@ -648,9 +661,9 @@ if part_sky:
     # ! end get lmin: better estimate
 
     print('lmin_mask:', lmin_mask)
-    print('lmin_from bpw:', lmin_bpw)
     print('lmax_mask:', lmax_mask)
     print('lmax_healpy:', lmax_healpy)
+    print('lmax_bin_obj:',  bin_obj.lmax)
     print('nside:', nside)
     print('fsky after apodization:', fsky)
     print('survey area after apodization:', survey_area_deg2, 'deg2')
@@ -695,7 +708,7 @@ if part_sky:
                                           cl_BB=cl_BB_unbinned[:, zi, zi],
                                           cl_TE=cl_GL_unbinned[:, zi, zi],
                                           nside=nside)
-        f0[zi], f2[zi] = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask)
+        f0[zi], f2[zi] = masked_maps_to_nmtFields(map_T, map_Q, map_U, mask, lmax=bin_obj.lmax)
 
     # Create a map(s) from cl(s) to visualize the simulated - masked - maps, just for fun
     zi = 0
@@ -748,8 +761,8 @@ if part_sky:
     #     hp.mollview(corr_maps_ll[i][1], title='U')
 
     # now instantiate the fields
-    f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True) for map_T in corr_maps_gg])
-    f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True) for (map_Q, map_U) in corr_maps_ll])
+    f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True, lmax=bin_obj.lmax) for map_T in corr_maps_gg])
+    f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True, lmax=bin_obj.lmax) for (map_Q, map_U) in corr_maps_ll])
 
     cl_GG_master = np.zeros((nbl_eff, zbins_use, zbins_use))
     cl_GL_master = np.zeros((nbl_eff, zbins_use, zbins_use))
@@ -789,9 +802,9 @@ if part_sky:
             hp_pcl_tot = hp.anafast(map1=[_corr_maps_zi[0] * mask, _corr_maps_zi[1] * mask, _corr_maps_zi[2] * mask],
                                     map2=[_corr_maps_zj[0] * mask, _corr_maps_zj[1] * mask, _corr_maps_zj[2] * mask])
             # output is TT, EE, BB, TE, EB, TB
-            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :]
-            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :]
-            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :]
+            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :-1]
+            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :-1]
+            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :-1]
 
     # ! compare results
     block = 'GLGL'
@@ -895,10 +908,21 @@ if part_sky:
     cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
     cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
     cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
+
+
     if use_INKA:
-        cl_GG_4covnmt = pcl_GG_nmt / fsky
-        cl_GL_4covnmt = pcl_GL_nmt / fsky
-        cl_LL_4covnmt = pcl_LL_nmt / fsky
+        cl_GG_4covnmt = np.zeros_like(cl_GG_unbinned)
+        cl_GL_4covnmt = np.zeros_like(cl_GL_unbinned)
+        cl_LL_4covnmt = np.zeros_like(cl_LL_unbinned)
+        for zi in range(zbins_use):
+            for zj in range(zbins_use):
+                cl_GG_4covnmt[:, zi, zj] = w00.couple_cell([cl_GG_unbinned[:, zi, zj]])[0] / fsky
+                cl_GL_4covnmt[:, zi, zj] = w02.couple_cell([cl_GL_unbinned[:, zi, zj],
+                                                            np.zeros_like(cl_GL_unbinned[:, zi, zj])])[0] / fsky
+                cl_LL_4covnmt[:, zi, zj] = w22.couple_cell([cl_LL_unbinned[:, zi, zj],
+                                                            np.zeros_like(cl_LL_unbinned[:, zi, zj]),
+                                                            np.zeros_like(cl_LL_unbinned[:, zi, zj]),
+                                                            np.zeros_like(cl_LL_unbinned[:, zi, zj])])[0] / fsky
 
         # TODO not super sure about this
         # cl_GG_4covsb = pcl_GG_nmt[:, :zbins_use, :zbins_use] / fsky
