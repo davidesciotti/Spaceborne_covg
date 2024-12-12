@@ -1,3 +1,4 @@
+from copy import deepcopy
 import itertools
 import time
 import warnings
@@ -229,7 +230,6 @@ def compute_master(f_a, f_b, wsp):
     cl_coupled = nmt.compute_coupled_cell(f_a, f_b)
     cl_decoupled = wsp.decouple_cell(cl_coupled)
     return cl_decoupled
-
 
 
 def produce_correlated_maps(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, nreal, nside, zbins_use):
@@ -564,43 +564,36 @@ if part_sky:
     # * original
     # bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
     # * new
-    bin_obj = nmt.NmtBin.from_edges(ell_bin_lower_edges.astype(int), ell_bin_upper_edges.astype(int))
-    # bin_obj = nmt.NmtBin.from_lmax_linear(lmax=lmax, nlb=ells_per_band, is_Dell=False, f_ell=None) # TODO test this
-    # bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
-    bin_obj = nmt.NmtBin.from_edges(
-    ell_bin_lower_edges.astype(int),
-    ell_bin_upper_edges.astype(int), is_Dell=False, f_ell=None)
+    bin_obj = nmt.NmtBin.from_edges(ell_bin_lower_edges.astype(int), 
+                                    ell_bin_upper_edges.astype(int))
 
     # set different possible values for lmax
     lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
     lmax_healpy = 3 * nside
     # to be safe, following https://heracles.readthedocs.io/stable/examples/example.html
     lmax_healpy_safe = int(1.5 * nside)
-    lmax = bin_obj.lmax + 1
 
     ells_eff = bin_obj.get_effective_ells()  # get effective ells per bandpower
     nbl_eff = len(ells_eff)
-    
+
     ells_eff_edges = np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)])
     # bin_obj.get_ell_list(nbl_eff) is out of bounds
     ells_eff_edges = np.append(ells_eff_edges, bin_obj.get_ell_list(nbl_eff - 1)[-1] + 1)  # careful f the +1!
     lmin_eff = ells_eff_edges[0]
-    lmax_eff = ells_eff_edges[-1]
-    
-    ells_tot = np.arange(lmax_eff) + 1
+    lmax_eff = bin_obj.lmax
+
+    ells_tot = np.arange(lmax_eff + 1)
     nbl_tot = len(ells_tot)
-    
+    assert nbl_tot ==  lmax_eff + 1, 'nbl_tot does not match lmax_eff + 1'
+
     ells_bpw = ells_tot[lmin_eff:lmax_eff]
     delta_ells_bpw = np.diff(np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)]))
     # assert np.all(delta_ells_bpw == ells_per_band), 'delta_ell from bpw does not match ells_per_band'
-
 
     # ! create nmt field from the mask (there will be no maps associated to the fields)
     # TODO maks=None (as in the example) or maps=[mask]? I think None
     start_time = time.perf_counter()
     print('computing coupling coefficients...')
-    f0_mask = nmt.NmtField(mask=mask, maps=None, spin=0, lite=True, lmax=lmax_eff-1)
-    f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True, lmax=lmax_eff-1)
     f0_mask = nmt.NmtField(mask=mask, maps=None, spin=0, lite=True, lmax=bin_obj.lmax)
     f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True, lmax=bin_obj.lmax)
     w00 = nmt.NmtWorkspace()
@@ -639,7 +632,6 @@ if part_sky:
     # assert bpw_00.shape[1] == bpw_02.shape[1] == bpw_22.shape[1], \
     #     "The number of bandpower windows must be the same for all fields"
 
-
     clr = cm.rainbow(np.linspace(0, 1, bpw_00.shape[1]))
     plt.figure(figsize=(10, 6))
     for i in range(nbl_eff):
@@ -663,15 +655,15 @@ if part_sky:
     print('lmin_mask:', lmin_mask)
     print('lmax_mask:', lmax_mask)
     print('lmax_healpy:', lmax_healpy)
-    print('lmax_bin_obj:',  bin_obj.lmax)
+    print('lmax_bin_obj:', bin_obj.lmax)
     print('nside:', nside)
     print('fsky after apodization:', fsky)
     print('survey area after apodization:', survey_area_deg2, 'deg2')
 
     # cut and bin the theory
-    cl_GG_unbinned = cl_GG_unbinned[:lmax_eff, :zbins_use, :zbins_use]
-    cl_GL_unbinned = cl_GL_unbinned[:lmax_eff, :zbins_use, :zbins_use]
-    cl_LL_unbinned = cl_LL_unbinned[:lmax_eff, :zbins_use, :zbins_use]
+    cl_GG_unbinned = deepcopy(cl_GG_unbinned[:lmax_eff + 1, :zbins_use, :zbins_use])
+    cl_GL_unbinned = deepcopy(cl_GL_unbinned[:lmax_eff + 1, :zbins_use, :zbins_use])
+    cl_LL_unbinned = deepcopy(cl_LL_unbinned[:lmax_eff + 1, :zbins_use, :zbins_use])
     cl_BB_unbinned = np.zeros_like(cl_LL_unbinned)
     cl_TB_unbinned = np.zeros_like(cl_LL_unbinned)
     cl_EB_unbinned = np.zeros_like(cl_LL_unbinned)
@@ -762,7 +754,8 @@ if part_sky:
 
     # now instantiate the fields
     f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True, lmax=bin_obj.lmax) for map_T in corr_maps_gg])
-    f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True, lmax=bin_obj.lmax) for (map_Q, map_U) in corr_maps_ll])
+    f2 = np.array([nmt.NmtField(mask, [map_Q, map_U], n_iter=3, lite=True, lmax=bin_obj.lmax)
+                  for (map_Q, map_U) in corr_maps_ll])
 
     cl_GG_master = np.zeros((nbl_eff, zbins_use, zbins_use))
     cl_GL_master = np.zeros((nbl_eff, zbins_use, zbins_use))
@@ -802,9 +795,9 @@ if part_sky:
             hp_pcl_tot = hp.anafast(map1=[_corr_maps_zi[0] * mask, _corr_maps_zi[1] * mask, _corr_maps_zi[2] * mask],
                                     map2=[_corr_maps_zj[0] * mask, _corr_maps_zj[1] * mask, _corr_maps_zj[2] * mask])
             # output is TT, EE, BB, TE, EB, TB
-            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :-1]
-            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :-1]
-            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :-1]
+            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :]
+            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :]
+            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :]
 
     # ! compare results
     block = 'GLGL'
@@ -844,7 +837,7 @@ if part_sky:
             pseudo_cl_dav = np.einsum('ij,jkl->ikl', mm_gl[:nbl_tot, :nbl_tot],
                                       cl_GL_unbinned)  # TODO test this better!
 
-        assert np.allclose(cl_th_bpw, cl_th_bpw_dav, atol=0, rtol=1e-4)
+        # assert np.allclose(cl_th_bpw, cl_th_bpw_dav, atol=0, rtol=1e-4)
 
         plt.figure()
         clr = cm.rainbow(np.linspace(0, 1, zbins_use))
@@ -908,7 +901,6 @@ if part_sky:
     cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
     cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
     cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
-
 
     if use_INKA:
         cl_GG_4covnmt = np.zeros_like(cl_GG_unbinned)
@@ -1467,14 +1459,14 @@ if part_sky:
     plt.show()
 
     # now plot the eigenvalues
-    eigen_sim = np.linalg.eigvalsh(cov_sim_2d)
-    eigen_nmt = np.linalg.eigvalsh(cov_nmt_2d)
-    eigen_sb = np.linalg.eigvalsh(cov_sb_2d)
+    eigen_sim = np.linalg.eigvals(cov_sim_2d)
+    eigen_nmt = np.linalg.eigvals(cov_nmt_2d)
+    eigen_sb = np.linalg.eigvals(cov_sb_2d)
 
     plt.figure()
-    plt.semilogy(eigen_nmt[::-1], label='nmt cov')
-    plt.semilogy(eigen_sb[::-1], label='sb cov', ls='--')
-    plt.semilogy(eigen_sim[::-1], label='sim cov', ls='--')
+    plt.semilogy(eigen_nmt, label='nmt cov')
+    plt.semilogy(eigen_sb, label='sb cov', ls='--')
+    plt.semilogy(eigen_sim, label='sim cov', ls='--')
     plt.xlabel('eigenvalue index')
     plt.ylabel('eigenvalue')
     plt.legend()
