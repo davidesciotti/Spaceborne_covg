@@ -5,6 +5,7 @@ import warnings
 from matplotlib import cm
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import chi2
 from tqdm import tqdm
 import yaml
 import utils
@@ -559,25 +560,26 @@ if part_sky:
 
     # ! Define the set of bandpowers used in the computation of the pseudo-Cl
     # Initialize binning scheme with bandpowers of constant width (ells_per_band multipoles per bin)
-    # TODO use lmax_mask instead of nside? Decide which binning scheme is the best
     # ell_values, delta_values, ell_bin_edges = utils.compute_ells(nbl, 0, lmax, recipe='ISTF', output_ell_bin_edges=True)
-    # * original
-    # bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
-    # * new
-    bin_obj = nmt.NmtBin.from_edges(ell_bin_lower_edges.astype(int),
-                                    ell_bin_upper_edges.astype(int))
+
+    if cfg['nmt_ell_binning'] == 'from_nside_linear':
+        bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
+    elif cfg['nmt_ell_binning'] == 'from_edges':
+        bin_obj = nmt.NmtBin.from_edges(ell_bin_lower_edges.astype(int),
+                                        ell_bin_upper_edges.astype(int))
+    else:
+        raise ValueError('nmt_ell_binning must be either "from_nside_linear" or "from_edges"')
 
     # set different possible values for lmax
     lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
     lmax_healpy = 3 * nside
-    # to be safe, following https://heracles.readthedocs.io/stable/examples/example.html
-    lmax_healpy_safe = int(1.5 * nside)
+    lmax_healpy_safe = int(1.5 * nside)  # safer limit, following https://heracles.readthedocs.io/stable/examples/example.html
 
     ells_eff = bin_obj.get_effective_ells()  # get effective ells per bandpower
     nbl_eff = len(ells_eff)
 
+    # notice that bin_obj.get_ell_list(nbl_eff) is out of bounds
     ells_eff_edges = np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)])
-    # bin_obj.get_ell_list(nbl_eff) is out of bounds
     ells_eff_edges = np.append(ells_eff_edges, bin_obj.get_ell_list(nbl_eff - 1)[-1] + 1)  # careful f the +1!
     lmin_eff = ells_eff_edges[0]
     lmax_eff = bin_obj.lmax
@@ -605,7 +607,6 @@ if part_sky:
     print(f'...done in {(time.perf_counter() - start_time):.2f}s')
 
     # ! Plot bpowers
-    # TODO: better understand difference between bpw_00, 02, 22, if any
     # TODO: better understand lmin estimate (I could do it direcly from bin_obj...)
 
     # Get bandpower window functions. Convolve the theory power spectra with these as an alternative to the combination
@@ -629,8 +630,8 @@ if part_sky:
     # else:
     #     raise ValueError(f"Invalid value for 'which_ell_weights': {cfg['which_ell_weights']}")
 
-    # assert bpw_00.shape[1] == bpw_02.shape[1] == bpw_22.shape[1], \
-    #     "The number of bandpower windows must be the same for all fields"
+    assert bpw_00.shape[1] == bpw_02.shape[1] == bpw_22.shape[1], \
+        "The number of bandpower windows must be the same for all fields"
 
     clr = cm.rainbow(np.linspace(0, 1, bpw_00.shape[1]))
     plt.figure(figsize=(10, 6))
@@ -642,15 +643,11 @@ if part_sky:
     # ell edges
     for i in range(nbl_eff + 1):
         plt.axvline(ells_eff_edges[i], c='k', ls='--')
-
     plt.xlabel(r'$\ell$')
     plt.ylabel('Window function')
     plt.title('Bandpower Window Functions')
     plt.legend()
     plt.show()
-
-    # TODO finish checking lmin
-    # ! end get lmin: better estimate
 
     print('lmin_mask:', lmin_mask)
     print('lmax_mask:', lmax_mask)
@@ -1033,6 +1030,7 @@ if part_sky:
 
         if cfg['save_sample_cov']:
             np.save(sample_cov_name, cov_sim_10d)
+
         if cfg['save_sim_maps']:
             np.save(cfg['sim_cls_name'].format(probe='GG', **settings_dict), sim_cl_GG)
             np.save(cfg['sim_cls_name'].format(probe='GL', **settings_dict), sim_cl_GL)
@@ -1088,15 +1086,10 @@ if part_sky:
                                            nbl_eff, zbins_use, ind_use.copy(), GL_or_LG)
 
     # ! reshape to 2d
-    # ell-probe-zpair ordering
-    # cov_nmt_2d = utils.cov_4D_to_2D(cov_nmt_4d, block_index='ij', optimize=True)
-    # cov_sb_2d = utils.cov_4D_to_2D(cov_sb_4d, block_index='vincenzo', optimize=True)
-
     # probe-ell-zpair ordering
     cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_nmt_4d, zbins_use, block_index='ell')
     cov_sb_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_sb_4d, zbins_use, block_index='ell')
     cov_sim_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_sim_4d, zbins_use, block_index='ell')
-    # cov_nmt_2d = utils.symmetrize_2d_array(cov_nmt_2d_min)
 
     # ! check different zij x zjk blocks
     if fsky == 1:
@@ -1166,17 +1159,6 @@ if part_sky:
     np.testing.assert_allclose(cov_GLGG_nmt_2d, cov_GGGL_nmt_2d.T, atol=0, rtol=1e-3)
     np.testing.assert_allclose(cov_nmt_2d, cov_nmt_2d.T, atol=0, rtol=1e-3)
 
-    # check all blocks
-    kw = dict(abs_val=True, log_array=True, log_diff=False, plot_diff_threshold=1)
-    utils.compare_arrays(cov_LLLL_nmt_2d, cov_LLLL_sb_2d, 'cov_LLLL_nmt_2d', 'cov_LLLL_sb_2d', **kw)
-    utils.compare_arrays(cov_GGGG_nmt_2d, cov_GGGG_sb_2d, 'cov_GGGG_nmt_2d', 'cov_GGGG_sb_2d', **kw)
-    utils.compare_arrays(cov_GLGL_nmt_2d, cov_GLGL_sb_2d, 'cov_GLGL_nmt_2d', 'cov_GLGL_sb_2d', **kw)
-    utils.compare_arrays(cov_GGLL_nmt_2d, cov_GGLL_sb_2d, 'cov_GGLL_nmt_2d', 'cov_GGLL_sb_2d', **kw)
-    utils.compare_arrays(cov_GGGL_nmt_2d, cov_GGGL_sb_2d, 'cov_GGGL_nmt_2d', 'cov_GGGL_sb_2d', **kw)
-    utils.compare_arrays(cov_GLLL_nmt_2d, cov_GLLL_sb_2d, 'cov_GLLL_nmt_2d', 'cov_GLLL_sb_2d', **kw)
-    utils.compare_arrays(cov_nmt_2d, cov_sb_2d, 'cov_nmt_2d', 'cov_sb_2d', **kw)
-    utils.compare_arrays(cov_nmt_2d, cov_sim_2d, 'cov_nmt_2d', 'cov_sim_2d', abs_val=True, log_array=True,
-                         log_diff=True, plot_diff_threshold=1)
 
     # ! check inversion of different blocks and total 2d covs
     print('Testing inversion of the covariance blocks...')
@@ -1208,6 +1190,11 @@ if part_sky:
             print(f'Cholesky decomposition failed for {cov_name}: {err} ❌')
 
     # ! PLOTS
+
+    # ! total cov
+    kw = dict(abs_val=True, log_array=True, log_diff=False, plot_diff_threshold=1)
+    utils.compare_arrays(cov_nmt_2d, cov_sb_2d, 'cov_nmt_2d', 'cov_sb_2d', **kw)
+    utils.compare_arrays(cov_nmt_2d, cov_sim_2d, 'cov_nmt_2d', 'cov_sim_2d', **kw)
 
     # ! plot main diagonal of full 2d covariance
     k_diag = 0
@@ -1384,12 +1371,12 @@ if part_sky:
     plt.show()
 
     # ! new: compute chi2
-    sim_cl_GG = np.load(
-        f'../output/sim_cl_GG_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
-    sim_cl_GL = np.load(
-        f'../output/sim_cl_GL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
-    sim_cl_LL = np.load(
-        f'../output/sim_cl_LL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
+    # sim_cl_GG = np.load(
+    #     f'../output/sim_cl_GG_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
+    # sim_cl_GL = np.load(
+    #     f'../output/sim_cl_GL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
+    # sim_cl_LL = np.load(
+    #     f'../output/sim_cl_LL_nreal{nreal}_nside{nside}_{int(survey_area_deg2)}deg2_whichcls{which_cls}_coupled{coupled_cls}.npy')
 
     sim_cl_3x2pt_6d = np.zeros((nreal, n_probes, n_probes, nbl_eff, zbins_use, zbins_use))
     sim_cl_3x2pt_6d[:, 0, 0, :, :, :] = sim_cl_LL
@@ -1429,7 +1416,6 @@ if part_sky:
     # Define the range of chi-squared values for the theoretical curve
     dof = sim_cl_3x2pt.shape[1]
     # chi2_th = np.random.chisquare(df=dof, size=10000)  # nmt chi2 values
-    from scipy.stats import chi2
     chi2_values = np.linspace(np.min(chi2_sim), np.max(chi2_sim), 1000)
     chi2_pdf = chi2.pdf(chi2_values, df=dof)
 
