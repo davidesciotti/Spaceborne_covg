@@ -1159,17 +1159,6 @@ if part_sky:
     np.testing.assert_allclose(cov_GLGG_nmt_2d, cov_GGGL_nmt_2d.T, atol=0, rtol=1e-3)
     np.testing.assert_allclose(cov_nmt_2d, cov_nmt_2d.T, atol=0, rtol=1e-3)
 
-    # check all blocks
-    kw = dict(abs_val=True, log_array=True, log_diff=False, plot_diff_threshold=1)
-    utils.compare_arrays(cov_LLLL_nmt_2d, cov_LLLL_sb_2d, 'cov_LLLL_nmt_2d', 'cov_LLLL_sb_2d', **kw)
-    utils.compare_arrays(cov_GGGG_nmt_2d, cov_GGGG_sb_2d, 'cov_GGGG_nmt_2d', 'cov_GGGG_sb_2d', **kw)
-    utils.compare_arrays(cov_GLGL_nmt_2d, cov_GLGL_sb_2d, 'cov_GLGL_nmt_2d', 'cov_GLGL_sb_2d', **kw)
-    utils.compare_arrays(cov_GGLL_nmt_2d, cov_GGLL_sb_2d, 'cov_GGLL_nmt_2d', 'cov_GGLL_sb_2d', **kw)
-    utils.compare_arrays(cov_GGGL_nmt_2d, cov_GGGL_sb_2d, 'cov_GGGL_nmt_2d', 'cov_GGGL_sb_2d', **kw)
-    utils.compare_arrays(cov_GLLL_nmt_2d, cov_GLLL_sb_2d, 'cov_GLLL_nmt_2d', 'cov_GLLL_sb_2d', **kw)
-    utils.compare_arrays(cov_nmt_2d, cov_sb_2d, 'cov_nmt_2d', 'cov_sb_2d', **kw)
-    utils.compare_arrays(cov_nmt_2d, cov_sim_2d, 'cov_nmt_2d', 'cov_sim_2d', abs_val=True, log_array=True,
-                         log_diff=True, plot_diff_threshold=1)
 
     # ! check inversion of different blocks and total 2d covs
     print('Testing inversion of the covariance blocks...')
@@ -1202,6 +1191,11 @@ if part_sky:
 
     # ! PLOTS
 
+    # ! total cov
+    kw = dict(abs_val=True, log_array=True, log_diff=False, plot_diff_threshold=1)
+    utils.compare_arrays(cov_nmt_2d, cov_sb_2d, 'cov_nmt_2d', 'cov_sb_2d', **kw)
+    utils.compare_arrays(cov_nmt_2d, cov_sim_2d, 'cov_nmt_2d', 'cov_sim_2d', **kw)
+    
     # ! plot main diagonal of full 2d covariance
     k_diag = 0
     diag_nmt = np.diag(cov_nmt_2d, k=k_diag)
