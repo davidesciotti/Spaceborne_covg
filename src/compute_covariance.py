@@ -564,7 +564,7 @@ if part_sky:
     # * original
     # bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
     # * new
-    bin_obj = nmt.NmtBin.from_edges(ell_bin_lower_edges.astype(int), 
+    bin_obj = nmt.NmtBin.from_edges(ell_bin_lower_edges.astype(int),
                                     ell_bin_upper_edges.astype(int))
 
     # set different possible values for lmax

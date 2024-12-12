@@ -83,7 +83,7 @@ part_sky: True
 workspace_path: "{ROOT:s}/Spaceborne_covg/input/fullsky_NmtWorkspace_NS32_LMIN10_BW5.fits"
 
 # path to mask
-read_mask: True  # True or False. if False, generates polar cap with desired sky area and nside on-the-fly
+read_mask: False  # True or False. if False, generates polar cap with desired sky area and nside on-the-fly
 # DR3-like
 # mask_path: /home/davide/Documenti/Lavoro/Programmi/CSSTforecasts/mask_nside4096/map_area_only.npy
 # DR1-like (actual Euclid mask)
