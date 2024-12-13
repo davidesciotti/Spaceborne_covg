@@ -362,6 +362,44 @@ def sample_cov_nmt(zi, probe):
 
     return sample_cov
 
+# def linear_binning(lmax, lmin, bw):
+
+#     bins = np.linspace(lmin, lmax + 1, nbl + 1)
+#     ell = np.arange(lmin, lmax+1)
+#     i = np.digitize(ell, bins)-1
+#     b = nmt.NmtBin(bpws=i, ells=ell, weights=w, lmax=lmax)
+
+#     nbl = (lmax-lmin)//bw + 1
+#     elli = np.zeros(nbl, int)
+#     elle = np.zeros(nbl, int)
+
+#     for i in range(nbl):
+#         elli[i] = lmin + i*bw
+#         elle[i] = lmin + (i+1)*bw
+
+#     b = nmt.NmtBin.from_edges(elli, elle)
+#     return b
+
+def linear_binning(lmax, lmin, bw, w=None):
+
+    nbl = (lmax-lmin)//bw + 1
+    bins = np.linspace(lmin, lmax + 1, nbl + 1)
+    ell = np.arange(lmin, lmax+1)
+    i = np.digitize(ell, bins)-1
+    b = nmt.NmtBin(bpws=i, ells=ell, weights=w, lmax=lmax)
+
+    return b
+
+def log_binning(lmax, lmin, nbl, w=None):
+    op = np.log10
+    inv = lambda x: 10**x
+
+    bins = inv(np.linspace(op(lmin), op(lmax + 1), nbl + 1))
+    ell = np.arange(lmin, lmax+1)
+    i = np.digitize(ell, bins)-1
+    b = nmt.NmtBin(bpws=i, ells=ell, weights=w, lmax=lmax)
+
+    return b
 
 def get_lmid(ells, k):
     return 0.5 * (ells[k:] + ells[:-k])
@@ -382,7 +420,7 @@ fsky = survey_area_deg2 / utils.DEG2_IN_SPHERE
 zbins = cfg['zbins']
 ell_min = cfg['ell_min']
 ell_max = cfg['ell_max']
-nbl = cfg['ell_bins']
+nell_bins = cfg['ell_bins']
 
 sigma_eps = cfg['sigma_eps_i'] * np.sqrt(2)
 sigma_eps2 = sigma_eps ** 2
@@ -408,7 +446,7 @@ assert GL_or_LG in ('GL', 'LG'), 'GL_or_LG must be either GL or LG'
 assert triu_tril in ('triu', 'tril'), 'triu_tril must be either "triu" or "tril"'
 assert row_col_major in ('row-major', 'col-major'), 'row_col_major must be either "row-major" or "col-major"'
 assert isinstance(zbins, int), 'zbins must be an integer'
-assert isinstance(nbl, int), 'nbl must be an integer'
+assert isinstance(nell_bins, int), 'nbl must be an integer'
 
 if EP_or_ED == 'EP':
     n_gal_shear = cfg['n_gal_shear']
@@ -437,13 +475,13 @@ if cfg['delta_ell_path'] is None:
     assert cfg['ell_path'] is None, 'if delta_ell_path is None, ell_path must be None'
 
 if cfg['ell_path'] is None and cfg['delta_ell_path'] is None:
-    ell_values, delta_values, ell_bin_edges = utils.compute_ells(nbl, ell_min, ell_max, recipe='ISTF',
+    ell_values, delta_values, ell_bin_edges = utils.compute_ells(nell_bins, ell_min, ell_max, recipe='ISTF',
                                                                  output_ell_bin_edges=True)
     ell_bin_lower_edges = ell_bin_edges[:-1]
     ell_bin_upper_edges = ell_bin_edges[1:]
 
     # save to file for good measure
-    ell_grid_header = f'ell_min = {ell_min}\tell_max = {ell_max}\tell_bins = {nbl}\n' \
+    ell_grid_header = f'ell_min = {ell_min}\tell_max = {ell_max}\tell_bins = {nell_bins}\n' \
         f'ell_bin_lower_edge\tell_bin_upper_edge\tell_bin_center\tdelta_ell'
     ell_grid = np.column_stack((ell_bin_lower_edges, ell_bin_upper_edges, ell_values, delta_values))
     np.savetxt(f'{output_folder}/ell_grid.txt', ell_grid, header=ell_grid_header)
@@ -546,6 +584,7 @@ if part_sky:
     # check fsky and nside
     nside_from_mask = hp.get_nside(mask)
     assert nside_from_mask == cfg['nside'], 'nside from mask is not consistent with the desired nside in the cfg file'
+    assert ell_max < 3*cfg['nside'], 'nside cannot be higher than 3*nside'
 
     # set different possible values for lmax
     lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
@@ -562,13 +601,12 @@ if part_sky:
     # Initialize binning scheme with bandpowers of constant width (ells_per_band multipoles per bin)
     # ell_values, delta_values, ell_bin_edges = utils.compute_ells(nbl, 0, lmax, recipe='ISTF', output_ell_bin_edges=True)
 
-    if cfg['nmt_ell_binning'] == 'from_nside_linear':
-        bin_obj = nmt.NmtBin.from_nside_linear(nside, ells_per_band)
-    elif cfg['nmt_ell_binning'] == 'from_edges':
-        bin_obj = nmt.NmtBin.from_edges(ell_bin_lower_edges.astype(int),
-                                        ell_bin_upper_edges.astype(int))
+    if cfg['nmt_ell_binning'] == 'linear':
+        bin_obj = linear_binning(ell_max, ell_min, ells_per_band)
+    elif cfg['nmt_ell_binning'] == 'log':
+        bin_obj = log_binning(ell_max, ell_min, nell_bins)
     else:
-        raise ValueError('nmt_ell_binning must be either "from_nside_linear" or "from_edges"')
+        raise ValueError('nmt_ell_binning must be either "linear" or "log"')
 
     # set different possible values for lmax
     lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
@@ -587,7 +625,6 @@ if part_sky:
     ells_tot = np.arange(lmax_eff + 1)
     nbl_tot = len(ells_tot)
     assert nbl_tot ==  lmax_eff + 1, 'nbl_tot does not match lmax_eff + 1'
-
     ells_bpw = ells_tot[lmin_eff:lmax_eff]
     delta_ells_bpw = np.diff(np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)]))
     # assert np.all(delta_ells_bpw == ells_per_band), 'delta_ell from bpw does not match ells_per_band'
@@ -615,13 +652,13 @@ if part_sky:
     bpw_02 = w02.get_bandpower_windows()
     bpw_22 = w22.get_bandpower_windows()
 
-    if cfg['which_ell_weights'] == 'get_weight_list()':
-        ell_weights = np.array([bin_obj.get_weight_list(ell_idx)
-                                for ell_idx in range(nbl_eff)]).flatten()  # get effective ells per bandpower
-    elif cfg['which_ell_weights'] == 'get_bandpower_windows()':
-        raise ValueError("Case not tested")
-        warnings.warn('Using bpw_00 as ell_weights')
-        ell_weights = bpw_00[0, :, 0]
+    # if cfg['which_ell_weights'] == 'get_weight_list()':
+    #     ell_weights = np.array([bin_obj.get_weight_list(ell_idx)
+    #                             for ell_idx in range(nbl_eff)]).flatten()  # get effective ells per bandpower
+    # elif cfg['which_ell_weights'] == 'get_bandpower_windows()':
+    #     raise ValueError("Case not tested")
+    #     warnings.warn('Using bpw_00 as ell_weights')
+    #     ell_weights = bpw_00[0, :, 0]
 
     #     # interpolate on ells_bpw
     #     # ell_weights = np.zeros((nbl_eff, len(ells_bpw)))
@@ -792,9 +829,9 @@ if part_sky:
             hp_pcl_tot = hp.anafast(map1=[_corr_maps_zi[0] * mask, _corr_maps_zi[1] * mask, _corr_maps_zi[2] * mask],
                                     map2=[_corr_maps_zj[0] * mask, _corr_maps_zj[1] * mask, _corr_maps_zj[2] * mask])
             # output is TT, EE, BB, TE, EB, TB
-            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :]
-            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :]
-            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :]
+            hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :nbl_tot]
+            hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :nbl_tot]
+            hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :nbl_tot]
 
     # ! compare results
     block = 'GLGL'

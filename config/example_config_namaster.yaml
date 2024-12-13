@@ -6,9 +6,10 @@ zbins_use: 2
 EP_or_ED: "EP" # or 'ED'. Equipopulated or equidistant redshift bins
 
 ell_min: 10 # minimum ell for the angular power spectra
-ell_max: 1536 # maximum ell for the angular power spectra. Should be 3*NSIDE if the nmt covariance is requested
-ell_bins: 30 # number of ell bins for the angular power spectra
-nmt_ell_binning: 'from_edges' 
+ell_max: 1024 # maximum ell for the angular power spectra. Should be 3*NSIDE if the nmt covariance is requested
+ell_bins: 32 # number of ell bins for the angular power spectra
+ells_per_band: 50 # number of multipole values per bandpower
+nmt_ell_binning: 'log'
     # 'from_nside_linear' or 'from_edges'. The name matches the actual nmt functions.
     # in the 'from_nside_linear' case, the number of ell bins and ellmax will *not* match the values given above!
 
@@ -39,14 +40,11 @@ n_gal_path: null
 # intrinsic ellipticity dispersion per *component*. The total dispersion is
 # sigma_eps = sigma_eps_i * sqrt(2), and the term entering the covariance is sigma_eps^2
 sigma_eps_i: 0.26
-# survey_area_deg2: 14700 # in deg^2
-# survey_area_deg2: 2500  # in deg^2
-survey_area_deg2: 41252.96125  # in deg^2
+survey_area_deg2: 2500  # in deg^2
 mask_shape: polar_cap #  str, shape of the survey ("polar_cap" or "square")
 nside: 512  # nside of the healpix mask and maps
 apodize_mask: True
 aposize: 0.1 # apodization scale in deg
-ells_per_band: 50 # number of multipole values per bandpower
 nreal: 2 # number of Gaussian realisations
 load_simulated_cls: False  # whether to load simulated cls from file
 coupled_cls: False  # compute the covariance of the coupled or uncoupled cls
