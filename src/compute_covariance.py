@@ -38,10 +38,13 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
     zij_combinations = list(itertools.product(range(zbins), repeat=2))
     zijkl_combinations = list(itertools.product(range(zbins), repeat=4))
 
+    print(cl_GG_unbinned.shape)
+    print(cl_ring_big_list[0].shape)
+
     for i in tqdm(range(nreal)):
 
         # * 1. produce correlated alms
-        corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
+        corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=cl_GG_unbinned.shape[0]-1, new=True)
         assert len(corr_alms_tot) == zbins * 3, 'wrong number of alms'
 
         # extract alm for TT, EE, BB
@@ -50,7 +53,7 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
 
         # compute correlated maps
         corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms]
-        corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1) for (Elm, Blm) in corr_Elms_Blms]
+        corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, lmax=nbl_tot-1) for (Elm, Blm) in corr_Elms_Blms]
 
         # * 2. compute and bin simulated cls for all zbin combinations, using input correlated maps
         for zi, zj in zij_combinations:
@@ -99,21 +102,6 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
             sim_cl_GG[:, :, zi, zj], sim_cl_GG[:, :, zk, zl], **kw)[:nbl, nbl:]
 
     return cov_sim_10d, sim_cl_GG, sim_cl_GL, sim_cl_LL
-
-
-def build_cl_ring_ordering(cl_3d):
-
-    zbins = cl_3d.shape[1]
-    assert cl_3d.shape[1] == cl_3d.shape[2], 'input cls should have shape (ell_bins, zbins, zbins)'
-    cl_ring_list = []
-
-    for offset in range(0, zbins):  # offset defines the distance from the main diagonal
-        for zi in range(zbins - offset):
-            zj = zi + offset
-            cl_ring_list.append(cl_3d[:, zi, zj])
-
-    return cl_ring_list
-
 
 def build_cl_tomo_TEB_ring_ord(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, zbins, spectra_types=['T', 'E', 'B']):
 
@@ -193,9 +181,8 @@ def cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside):
     Returns:
         numpy.ndarray, numpy.ndarray, numpy.ndarray: Temperature map, Q-mode polarization map, U-mode polarization map.
     """
-    alm, Elm, Blm = hp.synalm([cl_TT, cl_EE, cl_BB, cl_TE, 0 * cl_TE, 0 * cl_TE],
-                              lmax=3 * nside - 1, new=True)
-    map_Q, map_U = hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1)
+    alm, Elm, Blm = hp.synalm([cl_TT, cl_EE, cl_BB, cl_TE, 0 * cl_TE, 0 * cl_TE], lmax=cl_TT.shape[0]-1, new=True)
+    map_Q, map_U = hp.alm2map_spin([Elm, Blm], nside, 2, lmax=cl_TT.shape[0]-1)
     map_T = hp.alm2map(alm, nside)
     return map_T, map_Q, map_U
 
@@ -232,43 +219,6 @@ def compute_master(f_a, f_b, wsp):
     cl_decoupled = wsp.decouple_cell(cl_coupled)
     return cl_decoupled
 
-
-def produce_correlated_maps(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, nreal, nside, zbins_use):
-
-    print(f'Generating {nreal} maps for nside {nside}...')
-
-    cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
-        cl_TT=cl_TT,
-        cl_EE=cl_EE,
-        cl_BB=cl_BB,
-        cl_TE=cl_TE,
-        cl_EB=cl_EB,
-        cl_TB=cl_TB,
-        zbins=zbins_use,
-        spectra_types=['T', 'E', 'B'])
-
-    corr_maps_gg_list = []
-    corr_maps_ll_list = []
-
-    for _ in tqdm(range(nreal)):
-
-        corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
-        assert len(corr_alms_tot) == zbins_use * 3, 'wrong number of alms'
-
-        # extract alm for TT, EE, BB
-        corr_alms = corr_alms_tot[::3]
-        corr_Elms_Blms = list(zip(corr_alms_tot[1::3], corr_alms_tot[2::3]))
-
-        # compute correlated maps for each bin
-        corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms]
-        corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1) for (Elm, Blm) in corr_Elms_Blms]
-
-        corr_maps_gg_list.append(corr_maps_gg)
-        corr_maps_ll_list.append(corr_maps_ll)
-
-    return corr_maps_gg_list, corr_maps_ll_list
-
-
 def pcls_from_maps(corr_maps_gg, corr_maps_ll, zi, zj, mask, coupled_cls, which_cls):
 
     if which_cls == 'namaster':
@@ -300,9 +250,6 @@ def pcls_from_maps(corr_maps_gg, corr_maps_ll, zi, zj, mask, coupled_cls, which_
         hp_pcl_tot = hp.anafast(map1=[_corr_maps_zi[0] * mask, _corr_maps_zi[1] * mask, _corr_maps_zi[2] * mask],
                                 map2=[_corr_maps_zj[0] * mask, _corr_maps_zj[1] * mask, _corr_maps_zj[2] * mask])
         # output is TT, EE, BB, TE, EB, TB
-        # hp_pcl_GG[:, zi, zj] = hp_pcl_tot[0, :]
-        # hp_pcl_LL[:, zi, zj] = hp_pcl_tot[1, :]
-        # hp_pcl_GL[:, zi, zj] = hp_pcl_tot[3, :]
 
         # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
         pseudo_cl_tt = hp_pcl_tot[0, :]
@@ -351,30 +298,7 @@ def sample_cov_nmt(zi, probe):
     sample_cov = sample_cov / nreal
     sample_cov -= sample_mean[None, :] * sample_mean[:, None]
 
-    # excellent agreement for bias=True
-    # cl_gg_list_test = np.array(cl_gg_list_test)
-    # cov_gg_test = np.cov(cl_gg_list_test, rowvar=False, bias=True)
-    # np.testing.assert_allclose(cov_gg_test, sample_cov, atol=0, rtol=1e-2)
-
     return sample_cov
-
-# def linear_binning(lmax, lmin, bw):
-
-#     bins = np.linspace(lmin, lmax + 1, nbl + 1)
-#     ell = np.arange(lmin, lmax+1)
-#     i = np.digitize(ell, bins)-1
-#     b = nmt.NmtBin(bpws=i, ells=ell, weights=w, lmax=lmax)
-
-#     nbl = (lmax-lmin)//bw + 1
-#     elli = np.zeros(nbl, int)
-#     elle = np.zeros(nbl, int)
-
-#     for i in range(nbl):
-#         elli[i] = lmin + i*bw
-#         elle[i] = lmin + (i+1)*bw
-
-#     b = nmt.NmtBin.from_edges(elli, elle)
-#     return b
 
 def linear_binning(lmax, lmin, bw, w=None):
 
@@ -434,7 +358,6 @@ mask_path = cfg['mask_path']
 output_folder = cfg['output_folder']
 n_probes = 2
 # ! end settings
-
 
 # sanity checks
 assert EP_or_ED in ('EP', 'ED'), 'EP_or_ED must be either EP or ED'
@@ -553,7 +476,6 @@ if part_sky:
         mask = hp.ud_grade(mask, nside_out=nside)
 
     else:
-        # mask = utils.generate_polar_cap(area_deg2=survey_area_deg2, nside=cfg['nside'])
         mask = utils.generate_survey_mask(area_deg2=survey_area_deg2,
                                           nside=cfg['nside'],
                                           shape=cfg['mask_shape'])
@@ -565,10 +487,8 @@ if part_sky:
         np.testing.assert_allclose(mask, np.ones_like(mask), atol=0, rtol=1e-6)
 
     # apodize
-    # hp.mollview(mask, title='before apodization', cmap='inferno_r')
     if cfg['apodize_mask'] and int(survey_area_deg2) != int(utils.DEG2_IN_SPHERE):
         mask = nmt.mask_apodization(mask, aposize=cfg['aposize'], apotype="Smooth")
-        # hp.mollview(mask, title='after apodization', cmap='inferno_r')
 
     # recompute after apodizing
     fsky = np.mean(mask**2)
@@ -623,7 +543,6 @@ if part_sky:
     assert nbl_tot ==  lmax_eff + 1, 'nbl_tot does not match lmax_eff + 1'
     ells_bpw = ells_tot[lmin_eff:lmax_eff]
     delta_ells_bpw = np.diff(np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)]))
-    # assert np.all(delta_ells_bpw == ells_per_band), 'delta_ell from bpw does not match ells_per_band'
 
     # ! create nmt field from the mask (there will be no maps associated to the fields)
     # TODO maks=None (as in the example) or maps=[mask]? I think None
@@ -648,39 +567,8 @@ if part_sky:
     bpw_02 = w02.get_bandpower_windows()
     bpw_22 = w22.get_bandpower_windows()
 
-    # if cfg['which_ell_weights'] == 'get_weight_list()':
-    #     ell_weights = np.array([bin_obj.get_weight_list(ell_idx)
-    #                             for ell_idx in range(nbl_eff)]).flatten()  # get effective ells per bandpower
-    # elif cfg['which_ell_weights'] == 'get_bandpower_windows()':
-    #     raise ValueError("Case not tested")
-    #     warnings.warn('Using bpw_00 as ell_weights')
-    #     ell_weights = bpw_00[0, :, 0]
-
-    #     # interpolate on ells_bpw
-    #     # ell_weights = np.zeros((nbl_eff, len(ells_bpw)))
-    #     # for ell_idx in range(nbl_eff):
-    #     # ell_weights[ell_idx, :] = np.interp(ells_bpw, ells_tot, _ell_weights[ell_idx, :])
-    # else:
-    #     raise ValueError(f"Invalid value for 'which_ell_weights': {cfg['which_ell_weights']}")
-
     assert bpw_00.shape[1] == bpw_02.shape[1] == bpw_22.shape[1], \
         "The number of bandpower windows must be the same for all fields"
-
-    clr = cm.rainbow(np.linspace(0, 1, bpw_00.shape[1]))
-    # plt.figure(figsize=(10, 6))
-    # for i in range(nbl_eff):
-    #     plt.plot(ells_tot, bpw_00[0, i, 0, :], c=clr[i], label='bpw_00' if i == 0 else '')
-    #     plt.plot(ells_tot, bpw_02[0, i, 0, :], c=clr[i], ls=':', label='bpw_02' if i == 0 else '')
-    #     plt.plot(ells_tot, bpw_22[0, i, 0, :], c=clr[i], ls='--', label='bpw_22' if i == 0 else '')
-
-    # # ell edges
-    # for i in range(nbl_eff + 1):
-    #     plt.axvline(ells_eff_edges[i], c='k', ls='--')
-    # plt.xlabel(r'$\ell$')
-    # plt.ylabel('Window function')
-    # plt.title('Bandpower Window Functions')
-    # plt.legend()
-    # plt.show()
 
     print('lmin_mask:', lmin_mask)
     print('lmax_mask:', lmax_mask)
@@ -764,7 +652,8 @@ if part_sky:
         cl_TB=cl_TB_unbinned,
         zbins=zbins_use, spectra_types=['T', 'E', 'B'])
 
-    corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
+    print('nbl = ', nbl_tot)
+    corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=nbl_tot-1, new=True)
     assert len(corr_alms_tot) == zbins_use * 3, 'wrong number of alms'
 
     # extract alm for TT, EE, BB
@@ -773,14 +662,7 @@ if part_sky:
 
     # compute correlated maps for each bin
     corr_maps_gg = [hp.alm2map(alm, nside) for alm in corr_alms]
-    corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, 3 * nside - 1) for (Elm, Blm) in corr_Elms_Blms]
-
-    # # plot for a quick check (these are lots of plots!)
-    # for i in range(len(corr_maps_gg)):
-    #     hp.mollview(corr_maps_gg[i], title='T')
-    # for i in range(len(corr_maps_ll)):
-    #     hp.mollview(corr_maps_ll[i][0], title='Q')
-    #     hp.mollview(corr_maps_ll[i][1], title='U')
+    corr_maps_ll = [hp.alm2map_spin([Elm, Blm], nside, 2, lmax=nbl_tot-1) for (Elm, Blm) in corr_Elms_Blms]
 
     # now instantiate the fields
     f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True, lmax=bin_obj.lmax) for map_T in corr_maps_gg])
@@ -867,8 +749,6 @@ if part_sky:
             pseudo_cl_dav = np.einsum('ij,jkl->ikl', mm_gl[:nbl_tot, :nbl_tot],
                                       cl_GL_unbinned)  # TODO test this better!
 
-        # assert np.allclose(cl_th_bpw, cl_th_bpw_dav, atol=0, rtol=1e-4)
-
         plt.figure()
         clr = cm.rainbow(np.linspace(0, 1, zbins_use))
 
@@ -890,9 +770,6 @@ if part_sky:
         plt.xscale('log')
         plt.tight_layout()
 
-        # plt.savefig(f'{block}.png')
-        # plt.show()
-
     # ! Let's now compute the Gaussian estimate of the covariance!
     start_time = time.perf_counter()
     # First we generate a NmtCovarianceWorkspace object to precompute
@@ -908,21 +785,6 @@ if part_sky:
     # TODO generalize to all zbin cross-correlations; z=0 for the moment
     # shape: (n_cls, n_bpws, n_cls, lmax+1)
     # n_cls is the number of power spectra (1, 2 or 4 for spin 0-0, spin 0-2 and spin 2-2 correlations)
-
-    # if coupled:
-    #     raise ValueError('coupled case not fully implemented yet')
-    #     print('Inputting pseudo-Cls/fsky to use INKA...')
-    #     nbl_4covnmt = nbl_tot
-    #     cl_GG_4covnmt = pcl_GG_nmt[:, zi, zj] / fsky
-    #     cl_GL_4covnmt = pcl_GL_nmt[:, zi, zj] / fsky
-    #     cl_LL_4covnmt = pcl_LL_nmt[:, zi, zj] / fsky
-    #     cl_GG_4covsb = pcl_GG_nmt  # or bpw_pcl_GG_nmt?
-    #     cl_GL_4covsb = pcl_GL_nmt  # or bpw_pcl_GL_nmt?
-    #     cl_LL_4covsb = pcl_LL_nmt  # or bpw_pcl_LL_nmt?
-    #     ells_4covsb = ells_tot
-    #     nbl_4covsb = len(ells_4covsb)
-    #     delta_ells_4covsb = np.ones(nbl_4covsb)  # since it's unbinned
-    # else:
 
     nbl_4covnmt = nbl_eff
     ells_4covsb = ells_tot
@@ -946,17 +808,10 @@ if part_sky:
                                                             np.zeros_like(cl_LL_unbinned[:, zi, zj]),
                                                             np.zeros_like(cl_LL_unbinned[:, zi, zj])])[0] / fsky
 
-        # TODO not super sure about this
-        # cl_GG_4covsb = pcl_GG_nmt[:, :zbins_use, :zbins_use] / fsky
-        # cl_GL_4covsb = pcl_GL_nmt[:, :zbins_use, :zbins_use] / fsky
-        # cl_LL_4covsb = pcl_LL_nmt[:, :zbins_use, :zbins_use] / fsky
     else:
         cl_GG_4covnmt = cl_GG_unbinned
         cl_GL_4covnmt = cl_GL_unbinned
         cl_LL_4covnmt = cl_LL_unbinned
-        # cl_GG_4covsb = cl_GG_unbinned[:, :zbins_use, :zbins_use]
-        # cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
-        # cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
 
     noise_3x2pt_4d = utils.build_noise(zbins_use, n_probes, sigma_eps2=sigma_eps2,
                                        ng_shear=n_gal_shear,
@@ -982,7 +837,6 @@ if part_sky:
     cl_eb_4covsim = np.zeros_like(cl_tt_4covsim)
     cl_bb_4covsim = np.zeros_like(cl_tt_4covsim)
 
-    # ! NAMASTER covariance
     # ! NAMASTER covariance
     if cfg['spin0']:
         if cfg['coupled_nmt_cov']:
@@ -1044,16 +898,6 @@ if part_sky:
     cl_3x2pt_5d[1, 0, :, :, :] = cl_GL_4covsb
     cl_3x2pt_5d[0, 1, :, :, :] = cl_GL_4covsb.transpose(0, 2, 1)
     cl_3x2pt_5d[1, 1, :, :, :] = cl_GG_4covsb
-
-    # noise_3x2pt_4d = utils.build_noise(zbins_use, n_probes, sigma_eps2=sigma_eps2,
-    #                                    ng_shear=n_gal_shear,
-    #                                    ng_clust=n_gal_clustering,
-    #                                    EP_or_ED=EP_or_ED)
-    # noise_3x2pt_5d = np.zeros((n_probes, n_probes, nbl_4covsb, zbins_use, zbins_use))
-    # for probe_A in (0, 1):
-    #     for probe_B in (0, 1):
-    #         for ell_idx in range(nbl_4covsb):
-    #             noise_3x2pt_5d[probe_A, probe_B, ell_idx, :, :] = noise_3x2pt_4d[probe_A, probe_B, ...]
 
     # TODO return only diag
     cov_sb_10d = utils.covariance_einsum(cl_3x2pt_5d, noise_3x2pt_5d, fsky,
@@ -1121,14 +965,6 @@ if part_sky:
                                         ells_out_edges=ells_eff_edges, weights=None,
                                         which_binning='mean')
 
-            # if cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
-            #     print(f'Binning NaMaster {block_name} covariance')
-            #     cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
-            #         utils.bin_2d_matrix(cov=cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl],
-            #                             ells_in=ells_tot, ells_out=ells_eff,
-            #                             ells_out_edges=ells_eff_edges, weights=None,
-            #                             which_binning='mean')
-
             if cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
                 print(f'Binning sample {block_name} covariance')
                 cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
@@ -1164,24 +1000,6 @@ if part_sky:
             np.testing.assert_allclose(cov_sb_4d[ell_idx, ell_idx, :, :], cov_nmt_4d[ell_idx, ell_idx, :, :],
                                        atol=0, rtol=1e-3)
             utils.compare_arrays(cov_sb_4d[ell_idx, ell_idx, :, :], cov_nmt_4d[ell_idx, ell_idx, :, :])
-
-    # ! check symmetry of different blocks in ell1, ell2
-    # print('checking symmetry of ell1xell1 covariance sub-blocks')
-    # for a, b, c, d in tqdm(z_combinations):
-    #     for zi, zj, zk, zl in z_combinations:
-
-    #         cov_block = cov_nmt_10d[a, b, c, d, :, :, zi, zj, zk, zl]
-    #         try:
-    #             np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
-    #         except AssertionError:
-    #             print(f'NMT cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
-    #             # utils.matshow(utils.percent_diff(cov_block, cov_block.T), log=False, abs_val=True, threshold=1)
-
-    #         cov_block = cov_sb_10d[a, b, c, d, :, :, zi, zj, zk, zl]
-    #         try:
-    #             np.testing.assert_allclose(cov_block, cov_block.T, atol=0, rtol=1e-2)
-    #         except AssertionError:
-    #             print(f'SB cov_block', a, b, c, d, ' - ', zi, zj, zk, zl, ' not symmetric ❌')
 
     # ! compare different blocks individually
     cov_LLLL_nmt_2d = cov_nmt_2d[:elem_auto_use, :elem_auto_use]
@@ -1298,34 +1116,7 @@ if part_sky:
                  f'\nuse_INKA {use_INKA}',
                  y=1.07)
 
-    # plt.savefig(f'../output/cov_diag_k{k_diag}_nreal{nreal}_{int(survey_area_deg2)}deg2_whichcls{cfg["which_cls"]}.png', dpi=400)
     plt.show()
-
-    # ! PLOT SIMS for a quick check against theoy cls
-    # TODO this can be skipped if the simulated cls are too cumbersome to load/save
-    # if block == 'GGGG':
-    #     cl_plt = cl_GG_unbinned[:, zi, zj]
-    #     sim_cls_plt = sim_cl_GG[:, :, zi, zj]
-    # elif block == 'GLGL':
-    #     cl_plt = cl_GL_unbinned[:, zi, zj]
-    #     sim_cls_plt = sim_cl_GL[:, :, zi, zj]
-    # elif block == 'LLLL':
-    #     cl_plt = cl_LL_unbinned[:, zi, zj]
-    #     sim_cls_plt = sim_cl_LL[:, :, zi, zj]
-
-    # plt.figure()
-    # count = 0
-    # for i in range(nreal)[:100:5]:
-    #     plt.semilogy(ells_eff, sim_cls_plt[i, :], label=f'simulated {coupled_label} cls' if count == 0 else '',
-    #                  marker='.')
-    #     count += 1
-    # plt.loglog(cl_plt, label='theory cls', c='tab:orange')
-    # plt.loglog(cl_plt * fsky, label='theory cls*fsky', c='k', ls='--')
-    # plt.axvline(lmax_healpy_safe, c='k', ls='--', label='1.5 * nside')
-    # plt.legend()
-    # plt.xlabel(r'$\ell$')
-    # plt.ylabel(r'$C_\ell$')
-    # plt.tight_layout()
 
     # ! PLOT SINGLE PROBE AND zijkl BLOCK
     # no delta_ell if you're using the pseudo-cls in the gaussian_simulations func!!
@@ -1351,19 +1142,14 @@ if part_sky:
     ax[0].loglog(ells_eff, np.diag(cov_sb_plt), label=f'cov_sb/fsky, {diag_label}', marker='.', c='tab:orange')
     ax[0].loglog(ells_eff, np.diag(cov_nmt_plt), label=f'cov_nmt, {diag_label}', marker='.', c=clr[0])
     ax[0].loglog(ells_eff, np.diag(cov_sim_plt), label=f'cov_sims, {diag_label}', marker='.', c=clr[1])
-    # ax[0].loglog(ells_eff, np.diag(cov_sims_nmt), label=f'cov_sims_nmt, {diag_label}', marker='.', c=clr[0], ls=':')
 
     for k in range(1, 2):
         diag_nmt = np.diag(cov_nmt_plt, k=k)
         diag_sim = np.diag(cov_sim_plt, k=k)
         l_mid = get_lmid(ells_eff, k)
         l_mid_tot = get_lmid(ells_tot, k)
-        # ls_nmt = '--' if np.all(diag_nmt < 0) else '-'
-        # ls_sim = '--' if np.all(diag_sim < 0) else '-'
         ls_nmt = '-'
         ls_sim = '--'
-        # diag_nmt = np.fabs(diag_nmt) if np.all(diag_nmt < 0) else diag_nmt
-        # diag_sim = np.fabs(diag_sim) if np.all(diag_sim < 0) else diag_sim
         diag_nmt = np.fabs(diag_nmt)
         diag_sim = np.fabs(diag_sim)
         ax[0].loglog(l_mid, diag_nmt, label='abs ' + label.format(code='nmt',
@@ -1375,8 +1161,6 @@ if part_sky:
                marker='.', label='sb/nmt', c='tab:orange')
     ax[1].plot(ells_eff, utils.percent_diff(np.diag(cov_sim_plt), np.diag(cov_nmt_plt)),
                marker='.', label='sim/nmt, k=0', c=clr[1], ls='-')
-    # ax[1].plot(get_lmid(ells_eff, k=1), utils.percent_diff(np.diag(cov_sim_plt, k=1), np.diag(cov_nmt_plt, k=1)),
-    #            marker='.', label='sim/nmt, k=1', c=clr[1], ls='--')
 
     ax[1].set_ylabel('% diff cov fsky/part_sky')
     ax[1].set_xlabel(r'$\ell$')
@@ -1389,8 +1173,6 @@ if part_sky:
     ax[1].legend()
     ax[0].set_ylabel('diag cov')
     ax[0].legend()
-    # ax[0].set_ylim(1e-25, 1e-10)
-    # ax[0].set_xlim(10, 1700)
 
     # ! plot whole covmat, for zi = zj = zk = zl = 0
     corr_nmt = utils.cov2corr(cov_nmt_plt)
@@ -1526,72 +1308,3 @@ if part_sky:
     plt.show()
 
     assert False, 'stop here to check partial-sky cov'
-
-    # ! end, dav
-
-
-# else:
-#     print('Computing the full-sky covariance divided by f_sky')
-#     cov_3x2pt_10D_arr = utils.covariance_einsum(cl_3x2pt_5D, noise_3x2pt_5D, fsky, ell_values, delta_values)
-#     print(f'covariance computation took {time.perf_counter() - start:.2f} seconds')
-
-# # reshape to 4D
-# cov_3x2pt_10D_dict = utils.cov_10D_array_to_dict(cov_3x2pt_10D_arr)
-# cov_3x2pt_4D = utils.cov_3x2pt_dict_10D_to_4D(cov_3x2pt_10D_dict, probe_ordering, nbl_eff, zbins, ind.copy(),
-#                                               GL_or_LG)
-# del cov_3x2pt_10D_dict, cov_3x2pt_10D_arr
-# gc.collect()
-
-# # reshape to 2D
-# # if not cfg['use_2DCLOE']:
-# #     cov_3x2pt_2D = utils.cov_4D_to_2D(cov_3x2pt_4D, block_index=block_index, optimize=True)
-# # elif cfg['use_2DCLOE']:
-# #     cov_3x2pt_2D = utils.cov_4D_to_2DCLOE_3x2pt(cov_3x2pt_4D, zbins, block_index='ell')
-# # else:
-# #     raise ValueError('use_2DCLOE must be a true or false')
-
-# if covariance_ordering_2D == 'probe_ell_zpair':
-#     use_2DCLOE = True
-#     block_index = 'ell'
-#     cov_3x2pt_2D = utils.cov_4D_to_2DCLOE_3x2pt(cov_3x2pt_4D, zbins, block_index=block_index)
-
-# elif covariance_ordering_2D == 'probe_zpair_ell':
-#     use_2DCLOE = True
-#     block_index = 'ij'
-#     cov_3x2pt_2D = utils.cov_4D_to_2DCLOE_3x2pt(cov_3x2pt_4D, zbins, block_index=block_index)
-
-# elif covariance_ordering_2D == 'ell_probe_zpair':
-#     use_2DCLOE = False
-#     block_index = 'ell'
-#     cov_3x2pt_2D = utils.cov_4D_to_2D(cov_3x2pt_4D, block_index=block_index, optimize=True)
-
-# elif covariance_ordering_2D == 'zpair_probe_ell':
-#     use_2DCLOE = False
-#     block_index = 'ij'
-#     cov_3x2pt_2D = utils.cov_4D_to_2D(cov_3x2pt_4D, block_index=block_index, optimize=True)
-
-# else:
-#     raise ValueError('covariance_ordering_2D must be a one of the following: probe_ell_zpair, probe_zpair_ell,'
-#                      'ell_probe_zpair, zpair_probe_ell')
-
-# if cfg['plot_covariance_2D']:
-#     plt.matshow(np.log10(cov_3x2pt_2D))
-#     plt.colorbar()
-#     plt.title(f'log10(cov_3x2pt_2D)\nordering: {covariance_ordering_2D}')
-
-# other_quantities_tosave = {
-#     'n_gal_shear [arcmin^{-2}]': n_gal_shear,
-#     'n_gal_clustering [arcmin^{-2}]': n_gal_clustering,
-#     'survey_area [deg^2]': survey_area_deg2,
-#     'sigma_eps': sigma_eps,
-# }
-
-# np.save(f'{output_folder}/cov_Gauss_3x2pt_2D_{covariance_ordering_2D}.npy', cov_3x2pt_2D)
-
-# with open(f'{output_folder}/other_specs.txt', 'w') as file:
-#     file.write(json.dumps(other_quantities_tosave))
-
-# print(f'Done')
-# print(f'Covariance files saved in {output_folder}')
-
-# # ! Plot covariance
