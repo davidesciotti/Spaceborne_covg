@@ -65,9 +65,9 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
             assert sim_cl_GG_ij.shape == sim_cl_GL_ij.shape == sim_cl_LL_ij.shape, 'Simulated cls must have the same shape'
 
             if len(sim_cl_GG_ij) != nbl:
-                sim_cl_GG[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_GG_ij)
-                sim_cl_GL[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_GL_ij)
-                sim_cl_LL[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_LL_ij)
+                sim_cl_GG[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_GG_ij[:bin_obj.lmax+1])
+                sim_cl_GL[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_GL_ij[:bin_obj.lmax+1])
+                sim_cl_LL[i, :, zi, zj] = bin_obj.bin_cell(sim_cl_LL_ij[:bin_obj.lmax+1])
             else:
                 sim_cl_GG[i, :, zi, zj] = sim_cl_GG_ij
                 sim_cl_GL[i, :, zi, zj] = sim_cl_GL_ij
@@ -271,10 +271,6 @@ def produce_correlated_maps(cl_TT, cl_EE, cl_BB, cl_TE, cl_EB, cl_TB, nreal, nsi
 
 def pcls_from_maps(corr_maps_gg, corr_maps_ll, zi, zj, mask, coupled_cls, which_cls):
 
-    # both healpy anafast and nmt.compute_coupled_cell return the coupled cls. Dividing by fsky gives a rough
-    # approximation of the true Cls
-    correction_factor = 1. if coupled_cls else fsky
-
     if which_cls == 'namaster':
 
         f0 = np.array([nmt.NmtField(mask, [map_T], n_iter=3, lite=True)
@@ -284,9 +280,9 @@ def pcls_from_maps(corr_maps_gg, corr_maps_ll, zi, zj, mask, coupled_cls, which_
 
         if coupled_cls:  # ! TODO fix this!!
             # pseudo-Cls. Becomes an ok estimator for the true Cls if divided by fsky
-            pseudo_cl_tt = nmt.compute_coupled_cell(f0[zi], f0[zj])[0] / correction_factor
-            pseudo_cl_te = nmt.compute_coupled_cell(f0[zi], f2[zj])[0] / correction_factor
-            pseudo_cl_ee = nmt.compute_coupled_cell(f2[zi], f2[zj])[0] / correction_factor
+            pseudo_cl_tt = nmt.compute_coupled_cell(f0[zi], f0[zj])[0]
+            pseudo_cl_te = nmt.compute_coupled_cell(f0[zi], f2[zj])[0]
+            pseudo_cl_ee = nmt.compute_coupled_cell(f2[zi], f2[zj])[0]
         else:
             # best estimator for the true Cls
             pseudo_cl_tt = compute_master(f0[zi], f0[zj], w00)[0, :]
@@ -569,10 +565,10 @@ if part_sky:
         np.testing.assert_allclose(mask, np.ones_like(mask), atol=0, rtol=1e-6)
 
     # apodize
-    hp.mollview(mask, title='before apodization', cmap='inferno_r')
+    # hp.mollview(mask, title='before apodization', cmap='inferno_r')
     if cfg['apodize_mask'] and int(survey_area_deg2) != int(utils.DEG2_IN_SPHERE):
         mask = nmt.mask_apodization(mask, aposize=cfg['aposize'], apotype="Smooth")
-        hp.mollview(mask, title='after apodization', cmap='inferno_r')
+        # hp.mollview(mask, title='after apodization', cmap='inferno_r')
 
     # recompute after apodizing
     fsky = np.mean(mask**2)
@@ -671,20 +667,20 @@ if part_sky:
         "The number of bandpower windows must be the same for all fields"
 
     clr = cm.rainbow(np.linspace(0, 1, bpw_00.shape[1]))
-    plt.figure(figsize=(10, 6))
-    for i in range(nbl_eff):
-        plt.plot(ells_tot, bpw_00[0, i, 0, :], c=clr[i], label='bpw_00' if i == 0 else '')
-        plt.plot(ells_tot, bpw_02[0, i, 0, :], c=clr[i], ls=':', label='bpw_02' if i == 0 else '')
-        plt.plot(ells_tot, bpw_22[0, i, 0, :], c=clr[i], ls='--', label='bpw_22' if i == 0 else '')
+    # plt.figure(figsize=(10, 6))
+    # for i in range(nbl_eff):
+    #     plt.plot(ells_tot, bpw_00[0, i, 0, :], c=clr[i], label='bpw_00' if i == 0 else '')
+    #     plt.plot(ells_tot, bpw_02[0, i, 0, :], c=clr[i], ls=':', label='bpw_02' if i == 0 else '')
+    #     plt.plot(ells_tot, bpw_22[0, i, 0, :], c=clr[i], ls='--', label='bpw_22' if i == 0 else '')
 
-    # ell edges
-    for i in range(nbl_eff + 1):
-        plt.axvline(ells_eff_edges[i], c='k', ls='--')
-    plt.xlabel(r'$\ell$')
-    plt.ylabel('Window function')
-    plt.title('Bandpower Window Functions')
-    plt.legend()
-    plt.show()
+    # # ell edges
+    # for i in range(nbl_eff + 1):
+    #     plt.axvline(ells_eff_edges[i], c='k', ls='--')
+    # plt.xlabel(r'$\ell$')
+    # plt.ylabel('Window function')
+    # plt.title('Bandpower Window Functions')
+    # plt.legend()
+    # plt.show()
 
     print('lmin_mask:', lmin_mask)
     print('lmax_mask:', lmax_mask)
@@ -988,50 +984,50 @@ if part_sky:
 
     # ! NAMASTER covariance
     # ! NAMASTER covariance
-if cfg['spin0']:
-    if cfg['coupled_nmt_cov']:
-        cov_nmt_10d = utils.nmt_gaussian_cov_spin0_coupled(cl_tt=cl_tt_4covnmt,
-                                                           cl_te=cl_te_4covnmt,
-                                                           cl_ee=cl_ee_4covnmt,
-                                                           zbins=zbins_use,
-                                                           nbl=nbl_eff,
-                                                           cw=cw, w00=w00,
-                                                           ells_in=ells_tot,
-                                                           ells_out=ells_eff,
-                                                           ells_out_edges=ells_eff_edges,
-                                                           weights=None,
-                                                           which_binning='mean')
-    else:
-        cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt=cl_tt_4covnmt,
-                                                   cl_te=cl_te_4covnmt,
-                                                   cl_ee=cl_ee_4covnmt,
-                                                   zbins=zbins_use,
-                                                   nbl=nbl_eff,
-                                                   cw=cw, w00=w00)
+    if cfg['spin0']:
+        if cfg['coupled_nmt_cov']:
+            cov_nmt_10d = utils.nmt_gaussian_cov_spin0_coupled(cl_tt=cl_tt_4covnmt,
+                                                            cl_te=cl_te_4covnmt,
+                                                            cl_ee=cl_ee_4covnmt,
+                                                            zbins=zbins_use,
+                                                            nbl=nbl_eff,
+                                                            cw=cw, w00=w00,
+                                                            ells_in=ells_tot,
+                                                            ells_out=ells_eff,
+                                                            ells_out_edges=ells_eff_edges,
+                                                            weights=None,
+                                                            which_binning='mean')
+        else:
+            cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt=cl_tt_4covnmt,
+                                                    cl_te=cl_te_4covnmt,
+                                                    cl_ee=cl_ee_4covnmt,
+                                                    zbins=zbins_use,
+                                                    nbl=nbl_eff,
+                                                    cw=cw, w00=w00)
 
-
-else:
-    if cfg['coupled_nmt_cov']:
-        cov_nmt_10d = utils.nmt_gaussian_cov_coupled(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt,
-                                                     cl_ee=cl_ee_4covnmt, cl_tb=cl_tb_4covnmt,
-                                                     cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
-                                                     zbins=zbins_use,
-                                                     nbl=nbl_eff,
-                                                     cw=cw, w00=w00, w02=w02, w22=w22,
-                                                     compute_all_blocks=cfg['compute_all_blocks'],
-                                                     ells_in=ells_tot,
-                                                     ells_out=ells_eff,
-                                                     ells_out_edges=ells_eff_edges,
-                                                     weights=None,
-                                                     which_binning='mean')
 
     else:
-        cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt, cl_ee=cl_ee_4covnmt,
-                                            cl_tb=cl_tb_4covnmt, cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
-                                            zbins=zbins_use,
-                                            nbl=nbl_eff,
-                                            cw=cw, w00=w00, w02=w02, w22=w22,
-                                            compute_all_blocks=cfg['compute_all_blocks'])
+        if cfg['coupled_nmt_cov']:
+            cov_nmt_10d = utils.nmt_gaussian_cov_coupled(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt,
+                                                        cl_ee=cl_ee_4covnmt, cl_tb=cl_tb_4covnmt,
+                                                        cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
+                                                        zbins=zbins_use,
+                                                        nbl=nbl_eff,
+                                                        cw=cw, w00=w00, w02=w02, w22=w22,
+                                                        compute_all_blocks=cfg['compute_all_blocks'],
+                                                        ells_in=ells_tot,
+                                                        ells_out=ells_eff,
+                                                        ells_out_edges=ells_eff_edges,
+                                                        weights=None,
+                                                        which_binning='mean')
+
+        else:
+            cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt, cl_ee=cl_ee_4covnmt,
+                                                cl_tb=cl_tb_4covnmt, cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
+                                                zbins=zbins_use,
+                                                nbl=nbl_eff,
+                                                cw=cw, w00=w00, w02=w02, w22=w22,
+                                                compute_all_blocks=cfg['compute_all_blocks'])
 
     probename_dict = {
         'L': 0,
@@ -1068,6 +1064,7 @@ else:
     # ! SAMPLE COVARIANCE - FROM NAMASTER DOCS
     if cfg['compute_namaster_sims']:
         probe = block[0] + block[1]
+        print(probe, zi)
         cov_sims_nmt = sample_cov_nmt(zi, probe)
         # Let's plot the error bars (first and second diagonals)
         l_mid = get_lmid(ells_eff, k=1)
