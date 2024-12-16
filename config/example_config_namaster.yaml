@@ -45,7 +45,7 @@ mask_shape: polar_cap #  str, shape of the survey ("polar_cap" or "square")
 nside: 512  # nside of the healpix mask and maps
 apodize_mask: True
 aposize: 0.1 # apodization scale in deg
-nreal: 10 # number of Gaussian realisations
+nreal: 1000 # number of Gaussian realisations
 load_simulated_cls: False  # whether to load simulated cls from file
 coupled_cls: True  # compute the covariance of the coupled or uncoupled cls
 coupled_nmt_cov: True  # compute the covariance of the coupled or uncoupled cls

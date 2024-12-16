@@ -16,6 +16,9 @@ ROOT = os.getenv("ROOT")
 def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned,
                       nbl, zbins, mask, nside, nreal, coupled_cls, which_cls):
 
+    # Generate a random seed serie
+    SEEDVALUE = np.arange(nreal)
+
     # TODO use only independent z pairs
     cov_sim_10d = np.zeros((n_probes, n_probes, n_probes, n_probes, nbl, nbl, zbins, zbins, zbins, zbins))
     sim_cl_GG = np.zeros((nreal, nbl, zbins, zbins))
@@ -42,6 +45,9 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
     print(cl_ring_big_list[0].shape)
 
     for i in tqdm(range(nreal)):
+
+        # fix the seed for each realisation from a fixed seed list
+        np.random.seed(SEEDVALUE[i])
 
         # * 1. produce correlated alms
         corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=cl_GG_unbinned.shape[0]-1, new=True)
@@ -652,7 +658,6 @@ if part_sky:
         cl_TB=cl_TB_unbinned,
         zbins=zbins_use, spectra_types=['T', 'E', 'B'])
 
-    print('nbl = ', nbl_tot)
     corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=nbl_tot-1, new=True)
     assert len(corr_alms_tot) == zbins_use * 3, 'wrong number of alms'
 
@@ -906,24 +911,6 @@ if part_sky:
                                nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
 
     # ! SAMPLE COVARIANCE - FROM NAMASTER DOCS
-    if cfg['compute_namaster_sims']:
-        probe = block[0] + block[1]
-        print(probe, zi)
-        cov_sims_nmt = sample_cov_nmt(zi, probe)
-        # Let's plot the error bars (first and second diagonals)
-        l_mid = get_lmid(ells_eff, k=1)
-        plt.figure()
-        plt.title('GG')
-        plt.plot(ells_eff, np.sqrt(np.diag(cov_nmt_plt)), 'r-', label='Analytical, 1st-diag.')
-        plt.plot(l_mid, np.sqrt(np.fabs(np.diag(cov_nmt_plt, k=1))), 'r--', label='Analytical, 2nd-diag.')
-        plt.plot(ells_eff, np.sqrt(np.diag(cov_sims_nmt)), 'g-', label='Simulated, 1st-diag.')
-        plt.plot(l_mid, np.sqrt(np.fabs(np.diag(cov_sims_nmt, k=1))), 'g--', label='Simulated, 2nd-diag.')
-        plt.xlabel(r'$\ell$', fontsize=16)
-        plt.ylabel(r'$\sigma(C_\ell)$', fontsize=16)
-        plt.yscale('log')
-        # plt.xscale('log')
-        plt.legend(fontsize=12, frameon=False)
-        plt.show()
     settings_dict = {'nreal': nreal, 'nside': nside, 'int_survey_area_deg2': int(survey_area_deg2),
                      'which_cls': which_cls, 'coupled_cls': str(coupled_cls), 'use_INKA': str(use_INKA),
                      'zbins_use': zbins_use}
