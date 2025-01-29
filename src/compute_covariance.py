@@ -380,26 +380,29 @@ def sample_cov_nmt(zi, probe):
 #     b = nmt.NmtBin.from_edges(elli, elle)
 #     return b
 
+
 def linear_binning(lmax, lmin, bw, w=None):
 
-    nbl = (lmax-lmin)//bw + 1
+    nbl = (lmax - lmin) // bw + 1
     bins = np.linspace(lmin, lmax + 1, nbl + 1)
-    ell = np.arange(lmin, lmax+1)
-    i = np.digitize(ell, bins)-1
+    ell = np.arange(lmin, lmax + 1)
+    i = np.digitize(ell, bins) - 1
     b = nmt.NmtBin(bpws=i, ells=ell, weights=w, lmax=lmax)
 
     return b
+
 
 def log_binning(lmax, lmin, nbl, w=None):
     op = np.log10
-    inv = lambda x: 10**x
+    def inv(x): return 10**x
 
     bins = inv(np.linspace(op(lmin), op(lmax + 1), nbl + 1))
-    ell = np.arange(lmin, lmax+1)
-    i = np.digitize(ell, bins)-1
+    ell = np.arange(lmin, lmax + 1)
+    i = np.digitize(ell, bins) - 1
     b = nmt.NmtBin(bpws=i, ells=ell, weights=w, lmax=lmax)
 
     return b
+
 
 def get_lmid(ells, k):
     return 0.5 * (ells[k:] + ells[:-k])
@@ -433,7 +436,7 @@ covariance_ordering_2D = cfg['covariance_ordering_2D']
 
 part_sky = cfg['part_sky']
 workspace_path = cfg['workspace_path']
-mask_path = cfg['mask_path']
+mask_path = cfg['mask_path'].format(ROOT=ROOT)
 
 output_folder = cfg['output_folder']
 n_probes = 2
@@ -549,18 +552,25 @@ if part_sky:
 
     # read or generate mask
     if cfg['read_mask']:
-        if mask_path.endswith('.fits'):
+        if mask_path.endswith('footprint-gal-12.fits'):
             mask = hp.read_map(mask_path)
             mask = np.where(np.logical_and(mask <= utils.DR1_DATE, mask >= 0.), 1., 0,)
+            # Save the actual DR1 mask to a new FITS file
+            # output_path = mask_path.replace(".fits", "_DR1.fits")
+            # hp.write_map(output_path, mask, dtype=np.float64, overwrite=True)
+        elif mask_path.endswith('footprint-gal-12_DR1.fits'):
+            mask = hp.read_map(mask_path)
         elif mask_path.endswith('.npy'):
             mask = np.load(mask_path)
         mask = hp.ud_grade(mask, nside_out=nside)
+        
 
     else:
         # mask = utils.generate_polar_cap(area_deg2=survey_area_deg2, nside=cfg['nside'])
         mask = utils.generate_survey_mask(area_deg2=survey_area_deg2,
                                           nside=cfg['nside'],
                                           shape=cfg['mask_shape'])
+        
 
     fsky = np.mean(mask**2)
     survey_area_deg2 = fsky * utils.DEG2_IN_SPHERE
@@ -584,7 +594,7 @@ if part_sky:
     # check fsky and nside
     nside_from_mask = hp.get_nside(mask)
     assert nside_from_mask == cfg['nside'], 'nside from mask is not consistent with the desired nside in the cfg file'
-    assert ell_max < 3*cfg['nside'], 'nside cannot be higher than 3*nside'
+    assert ell_max < 3 * cfg['nside'], 'nside cannot be higher than 3*nside'
 
     # set different possible values for lmax
     lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
@@ -611,7 +621,8 @@ if part_sky:
     # set different possible values for lmax
     lmax_mask = int(np.pi / hp.pixelfunc.nside2resol(nside))
     lmax_healpy = 3 * nside
-    lmax_healpy_safe = int(1.5 * nside)  # safer limit, following https://heracles.readthedocs.io/stable/examples/example.html
+    # safer limit, following https://heracles.readthedocs.io/stable/examples/example.html
+    lmax_healpy_safe = int(1.5 * nside)
 
     ells_eff = bin_obj.get_effective_ells()  # get effective ells per bandpower
     nbl_eff = len(ells_eff)
@@ -624,7 +635,7 @@ if part_sky:
 
     ells_tot = np.arange(lmax_eff + 1)
     nbl_tot = len(ells_tot)
-    assert nbl_tot ==  lmax_eff + 1, 'nbl_tot does not match lmax_eff + 1'
+    assert nbl_tot == lmax_eff + 1, 'nbl_tot does not match lmax_eff + 1'
     ells_bpw = ells_tot[lmin_eff:lmax_eff]
     delta_ells_bpw = np.diff(np.array([bin_obj.get_ell_list(i)[0] for i in range(nbl_eff)]))
     # assert np.all(delta_ells_bpw == ells_per_band), 'delta_ell from bpw does not match ells_per_band'
@@ -1196,7 +1207,6 @@ if part_sky:
     np.testing.assert_allclose(cov_GLGG_nmt_2d, cov_GGGL_nmt_2d.T, atol=0, rtol=1e-3)
     np.testing.assert_allclose(cov_nmt_2d, cov_nmt_2d.T, atol=0, rtol=1e-3)
 
-
     # ! check inversion of different blocks and total 2d covs
     print('Testing inversion of the covariance blocks...')
     for cov_block, bloc_name in zip(
@@ -1312,7 +1322,7 @@ if part_sky:
     clr = cm.plasma(np.linspace(0, 1, 5))
     label = r'cov_{code:s}, $\ell^\prime=\ell+{off_diag:d}$'
     diag_label = '$\\ell^\prime=\\ell$'
-    title = f'cov {block}\nsurvey_area = {survey_area_deg2} deg2\nlinear binning,'\
+    title = f'cov {block}\nsurvey_area = {survey_area_deg2} deg2\n{cfg["nmt_ell_binning"]} binning,'\
         f' $\Delta\ell={delta_ells_bpw[0]:.1f}$, use_INKA {use_INKA}' \
         f'\nzi={zi}, zj={zj}, zk={zk}, zl={zl}'
     fig, ax = plt.subplots(2, 1, figsize=(10, 10), sharex=True,

@@ -2,7 +2,7 @@
 # Author: Davide Sciotti
 
 zbins: 10 # number of redshift bins
-zbins_use: 2
+zbins_use: 3
 EP_or_ED: "EP" # or 'ED'. Equipopulated or equidistant redshift bins
 
 ell_min: 10 # minimum ell for the angular power spectra
@@ -84,10 +84,10 @@ part_sky: True
 workspace_path: "{ROOT:s}/Spaceborne_covg/input/fullsky_NmtWorkspace_NS32_LMIN10_BW5.fits"
 
 # path to mask
-read_mask: False  # True or False. if False, generates polar cap with desired sky area and nside on-the-fly
+read_mask: True  # True or False. if False, generates polar cap with desired sky area and nside on-the-fly
 # DR3-like
 # mask_path: /home/davide/Documenti/Lavoro/Programmi/CSSTforecasts/mask_nside4096/map_area_only.npy
 # DR1-like (actual Euclid mask)
-mask_path: /home/cosmo/davide.sciotti/data/common_data/mask/Redmine/rsd2024a-time-tagged-footprint-gal-12.fits
+mask_path: "{ROOT:s}/common_data/mask/Redmine/rsd2024a-time-tagged-footprint-gal-12_DR1.fits"
 
 output_folder: "../output"
