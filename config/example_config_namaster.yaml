@@ -2,14 +2,14 @@
 # Author: Davide Sciotti
 
 zbins: 10 # number of redshift bins
-zbins_use: 3
+zbins_use: 2
 EP_or_ED: "EP" # or 'ED'. Equipopulated or equidistant redshift bins
 
 ell_min: 10 # minimum ell for the angular power spectra
 ell_max: 1024 # maximum ell for the angular power spectra. Should be 3*NSIDE if the nmt covariance is requested
-ell_bins: 32 # number of ell bins for the angular power spectra
+ell_bins: 20 # number of ell bins for the angular power spectra
 ells_per_band: 50 # number of multipole values per bandpower
-nmt_ell_binning: 'log'
+nmt_ell_binning: 'linear'
     # 'from_nside_linear' or 'from_edges'. The name matches the actual nmt functions.
     # in the 'from_nside_linear' case, the number of ell bins and ellmax will *not* match the values given above!
 
@@ -40,7 +40,8 @@ n_gal_path: null
 # intrinsic ellipticity dispersion per *component*. The total dispersion is
 # sigma_eps = sigma_eps_i * sqrt(2), and the term entering the covariance is sigma_eps^2
 sigma_eps_i: 0.26
-survey_area_deg2: 2500  # in deg^2
+# survey_area_deg2: 2500  # in deg^2
+survey_area_deg2: 41252.96124941928  # in deg^2
 mask_shape: polar_cap #  str, shape of the survey ("polar_cap" or "square")
 nside: 512  # nside of the healpix mask and maps
 apodize_mask: True
@@ -71,6 +72,7 @@ covariance_ordering_2D: "probe_zpair_ell" # must be one of ['probe_ell_zpair', '
 plot_covariance_2D: False # whether to plot (the log10 of) the 2D covariance matrix
 
 # path to 3d numpy Cls. If part_sky is True, it has to be the unbinned Cl's from ell_min = 0 to ell_max = 3*NSIDE (or 2*NSIDE, to check)
+load_cls: True
 cl_LL_3D_path: "{ROOT:s}/Spaceborne_covg/input/Cl_LL_unbinned_dav_C01.npy"
 cl_GL_3D_path: "{ROOT:s}/Spaceborne_covg/input/Cl_GL_unbinned_dav_C01.npy"
 cl_GG_3D_path: "{ROOT:s}/Spaceborne_covg/input/Cl_GG_unbinned_dav_C01.npy"
@@ -84,7 +86,7 @@ part_sky: True
 workspace_path: "{ROOT:s}/Spaceborne_covg/input/fullsky_NmtWorkspace_NS32_LMIN10_BW5.fits"
 
 # path to mask
-read_mask: True  # True or False. if False, generates polar cap with desired sky area and nside on-the-fly
+read_mask: False  # True or False. if False, generates polar cap with desired sky area and nside on-the-fly
 # DR3-like
 # mask_path: /home/davide/Documenti/Lavoro/Programmi/CSSTforecasts/mask_nside4096/map_area_only.npy
 # DR1-like (actual Euclid mask)

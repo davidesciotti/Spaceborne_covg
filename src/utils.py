@@ -200,7 +200,7 @@ def symmetrize_2d_array(array_2d):
 
 
 def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, coupled, cw, w00, w02, w22,
-                     compute_all_blocks):
+                     compute_all_blocks, **kwargs):
 
     # * NOTE: the order of the arguments (in particular for the cls) is the following
     # * spin_a1, spin_a2, spin_b1, spin_b2,
@@ -215,7 +215,6 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, coupl
     cl_be = cl_eb.transpose(0, 2, 1)  # not so sure about this but it's 0 for the moment
 
     print('Computing partial-sky Gaussian covariance with NaMaster...')
-    cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, nbl, nbl, zbins, zbins, zbins, zbins))
 
     def cl_00_list(zi, zj):
         return [cl_tt[:, zi, zj]]
@@ -230,6 +229,8 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, coupl
         return [cl_ee[:, zi, zj], cl_eb[:, zi, zj], cl_be[:, zi, zj], cl_bb[:, zi, zj]]
 
     # TODO use only the unique zbin combinations
+    # TODO in the coupled=True case, the output cov blocks are unbinned (I think)
+    cov_nmt_10d_arr = np.zeros((2, 2, 2, 2, kwargs['nbl_eff'], kwargs['nbl_eff'], zbins, zbins, zbins, zbins))
     z_combinations = list(itertools.product(range(zbins), repeat=4))
     for zi, zj, zk, zl in tqdm(z_combinations):
 
@@ -329,6 +330,15 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, coupl
         covar_BB_BE = covar_22_22[:, 3, :, 2]
         covar_BB_BB = covar_22_22[:, 3, :, 3]
 
+        cov_blocks_dict = {
+            'covar_TT_TT': covar_TT_TT,
+            'covar_TT_TE': covar_TT_TE,
+            'covar_TT_EE': covar_TT_EE,
+            'covar_TE_TE': covar_TE_TE,
+            'covar_TE_EE': covar_TE_EE,
+            'covar_EE_EE': covar_EE_EE
+        }
+
         if compute_all_blocks:
 
             covar_22_02 = nmt.gaussian_covariance(cw,
@@ -364,22 +374,38 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, coupl
                                                                            nbl, 1])
             covar_TE_TT = covar_02_00[:, 0, :, 0]
 
-            cov_nmt_10d_arr[0, 0, 1, 0, :, :, zi, zj, zk, zl] = covar_EE_TE
-            cov_nmt_10d_arr[0, 0, 1, 1, :, :, zi, zj, zk, zl] = covar_EE_TT
-            cov_nmt_10d_arr[1, 0, 1, 1, :, :, zi, zj, zk, zl] = covar_TE_TT
+            cov_blocks_dict['covar_EE_TE'] = covar_EE_TE
+            cov_blocks_dict['covar_EE_TT'] = covar_EE_TT
+            cov_blocks_dict['covar_TE_TT'] = covar_TE_TT
+
+        # if coupled == True, bin the covariance
+        for key, cov in cov_blocks_dict.items():
+            if cov.shape != (kwargs['nbl_eff'], kwargs['nbl_eff']):
+                assert coupled, 'The covariance matrix is not binned, but coupled=False...'
+                cov_blocks_dict[key] = bin_2d_matrix(cov=cov,
+                                                    ells_in=kwargs['ells_tot'],
+                                                    ells_out=kwargs['ells_eff'],
+                                                    ells_out_edges=kwargs['ells_eff_edges'],
+                                                    weights=None,
+                                                    which_binning='mean')
+
+        if compute_all_blocks:
+            cov_nmt_10d_arr[0, 0, 1, 0, :, :, zi, zj, zk, zl] = cov_blocks_dict['covar_EE_TE']
+            cov_nmt_10d_arr[0, 0, 1, 1, :, :, zi, zj, zk, zl] = cov_blocks_dict['covar_EE_TT']
+            cov_nmt_10d_arr[1, 0, 1, 1, :, :, zi, zj, zk, zl] = cov_blocks_dict['covar_TE_TT']
 
         else:
             # switch zi, zj with zk, zl in this case
-            cov_nmt_10d_arr[0, 0, 1, 0, :, :, zk, zl, zi, zj] = covar_TE_EE.T
-            cov_nmt_10d_arr[0, 0, 1, 1, :, :, zk, zl, zi, zj] = covar_TT_EE.T
-            cov_nmt_10d_arr[1, 0, 1, 1, :, :, zk, zl, zi, zj] = covar_TT_TE.T
+            cov_nmt_10d_arr[0, 0, 1, 0, :, :, zk, zl, zi, zj] = cov_blocks_dict['covar_TE_EE'].T
+            cov_nmt_10d_arr[0, 0, 1, 1, :, :, zk, zl, zi, zj] = cov_blocks_dict['covar_TT_EE'].T
+            cov_nmt_10d_arr[1, 0, 1, 1, :, :, zk, zl, zi, zj] = cov_blocks_dict['covar_TT_TE'].T
 
-        cov_nmt_10d_arr[0, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_EE_EE
-        cov_nmt_10d_arr[1, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_TE_EE
-        cov_nmt_10d_arr[1, 0, 1, 0, :, :, zi, zj, zk, zl] = covar_TE_TE
-        cov_nmt_10d_arr[1, 1, 0, 0, :, :, zi, zj, zk, zl] = covar_TT_EE
-        cov_nmt_10d_arr[1, 1, 1, 0, :, :, zi, zj, zk, zl] = covar_TT_TE
-        cov_nmt_10d_arr[1, 1, 1, 1, :, :, zi, zj, zk, zl] = covar_TT_TT
+        cov_nmt_10d_arr[0, 0, 0, 0, :, :, zi, zj, zk, zl] = cov_blocks_dict['covar_EE_EE']
+        cov_nmt_10d_arr[1, 0, 0, 0, :, :, zi, zj, zk, zl] = cov_blocks_dict['covar_TE_EE']
+        cov_nmt_10d_arr[1, 0, 1, 0, :, :, zi, zj, zk, zl] = cov_blocks_dict['covar_TE_TE']
+        cov_nmt_10d_arr[1, 1, 0, 0, :, :, zi, zj, zk, zl] = cov_blocks_dict['covar_TT_EE']
+        cov_nmt_10d_arr[1, 1, 1, 0, :, :, zi, zj, zk, zl] = cov_blocks_dict['covar_TT_TE']
+        cov_nmt_10d_arr[1, 1, 1, 1, :, :, zi, zj, zk, zl] = cov_blocks_dict['covar_TT_TT']
 
     return cov_nmt_10d_arr
 
@@ -506,8 +532,11 @@ def bin_cell(ells_in, ells_out, ells_out_edges, cls_in, weights, which_binning, 
     :param weights: array of weights for the input power spectrum
     :return: array of binned power spectrum
     """
+
+    weights_was_none = False
     if weights is None:
         weights = np.ones_like(ells_in)
+        weights_was_none = True
     if len(ells_in) != len(cls_in):
         raise ValueError('ells_in and cls_in must have the same length')
     if len(ells_in) != len(weights):
@@ -548,7 +577,7 @@ def bin_cell(ells_in, ells_out, ells_out_edges, cls_in, weights, which_binning, 
             weights_masked = weights[ell_masked_idxs]
 
         # Calculate the bin widths
-        if weights is None:
+        if weights_was_none:
             delta_ell = ell_max - ell_min
             assert delta_ell == np.sum(weights_masked), "The weights must sum to the bin width"
 
@@ -581,6 +610,7 @@ def bin_2d_matrix(cov, ells_in, ells_out, ells_out_edges, which_binning, weights
 
     if weights is None:
         weights = np.ones_like(ells_in)
+        weights_was_none = True
 
     assert len(weights) == len(ells_in)
 
@@ -614,9 +644,11 @@ def bin_2d_matrix(cov, ells_in, ells_out, ells_out_edges, which_binning, weights
             cov_masked = cov[np.ix_(ell1_masked_idxs, ell2_masked_idxs)]
 
             # Calculate the bin widths
-            if weights is None:
-                delta_ell = ell1_max - ell1_min
-                assert delta_ell == np.sum(weights1_masked), "The weights must sum to the bin width"
+            if weights_was_none:
+                delta_ell_1 = ell1_max - ell1_min
+                delta_ell_2 = ell2_max - ell2_min
+                assert delta_ell_1 == np.sum(weights1_masked), "The weights must sum to the bin width"
+                assert delta_ell_2 == np.sum(weights2_masked), "The weights must sum to the bin width"
 
             if which_binning == 'integral':
                 # Option 1a: use the original grid for integration and the ell values as weights
@@ -629,7 +661,10 @@ def bin_2d_matrix(cov, ells_in, ells_out, ells_out_edges, which_binning, weights
                 # ! important note: taking the mean in 2D is equivalent to taking the mean and dividing by delta_ell in 1D
                 # binned_cov[ell1_idx, ell2_idx] = np.mean(np.diag(cov_masked)) / delta_ell
                 binned_cov[ell1_idx, ell2_idx] = np.mean(cov_masked)
-
+                # ! updated note: when I do np.mean(cov_masked), I take the mean of a 2D array which is mostly filled
+                # ! with zeros, and I normalize by nbl_1*nbl_2 (where n is the number of ells in the bin). The output
+                # ! has therefore a lower value than when I take the mean of the diagonal of cov_masked as below:
+                # binned_cov[ell1_idx, ell2_idx] = np.mean(np.diag(cov_masked))
             else:
                 raise ValueError('which_binning should be "mean" or "integral"')
 
@@ -815,7 +850,6 @@ def generate_survey_mask(area_deg2, nside, shape="polar_cap"):
     print(f"Actual f_sky from the mask: {fsky_mask}")
 
     return mask
-
 
 
 def generate_ind(triu_tril_square, row_col_major, size):
@@ -2047,6 +2081,7 @@ def cov_4D_to_6D_blocks(cov_4D, nbl, zbins, ind_ab, ind_cd,
 
     return cov_6D
 
+
 def cov_3x2pt_4d_to_10d_dict(cov_3x2pt_4d, zbins, probe_ordering, nbl, ind_copy, symmetrize_output_dict, optimize=False):
 
     zpairs_auto, zpairs_cross, _ = get_zpairs(zbins)
@@ -2059,7 +2094,8 @@ def cov_3x2pt_4d_to_10d_dict(cov_3x2pt_4d, zbins, probe_ordering, nbl, ind_copy,
                 ('G', 'L'): ind_cross,
                 ('G', 'G'): ind_auto}
 
-    assert tuple(tuple(p) for p in probe_ordering) == (('L', 'L'), ('G', 'L'), ('G', 'G')), 'more elaborate probe_ordering not implemented yet'
+    assert tuple(tuple(p) for p in probe_ordering) == (('L', 'L'), ('G', 'L'),
+                                                       ('G', 'G')), 'more elaborate probe_ordering not implemented yet'
 
     # slice the 4d cov to be able to use cov_4D_to_6D_blocks on the nine separate blocks
     zpairs_sum = zpairs_auto + zpairs_cross
@@ -2094,6 +2130,8 @@ def cov_3x2pt_4d_to_10d_dict(cov_3x2pt_4d, zbins, probe_ordering, nbl, ind_copy,
     return cov_3x2pt_10d_dict
 
 ## build the noise matrices ##
+
+
 def build_noise(zbins, nProbes, sigma_eps2, ng_shear, ng_clust, EP_or_ED='EP'):
     """
     function to build the noise power spectra.
