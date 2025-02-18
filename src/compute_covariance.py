@@ -403,6 +403,10 @@ def log_binning(lmax, lmin, nbl, w=None):
 
     return b
 
+def log_binning_carlos(lmax, lmin, nbl):
+    bpw_edges = np.logspace(np.log10(lmin), np.log10(lmax), nbl, dtype=int)
+    bins = nmt.NmtBin.from_edges(ell_ini=bpw_edges[:-1], ell_end=bpw_edges[1:])
+    return bins
 
 def get_lmid(ells, k):
     return 0.5 * (ells[k:] + ells[:-k])
@@ -563,14 +567,14 @@ if part_sky:
         elif mask_path.endswith('.npy'):
             mask = np.load(mask_path)
         mask = hp.ud_grade(mask, nside_out=nside)
-        
+
 
     else:
         # mask = utils.generate_polar_cap(area_deg2=survey_area_deg2, nside=cfg['nside'])
         mask = utils.generate_survey_mask(area_deg2=survey_area_deg2,
                                           nside=cfg['nside'],
                                           shape=cfg['mask_shape'])
-        
+
 
     fsky = np.mean(mask**2)
     survey_area_deg2 = fsky * utils.DEG2_IN_SPHERE
@@ -614,7 +618,7 @@ if part_sky:
     if cfg['nmt_ell_binning'] == 'linear':
         bin_obj = linear_binning(ell_max, ell_min, ells_per_band)
     elif cfg['nmt_ell_binning'] == 'log':
-        bin_obj = log_binning(ell_max, ell_min, nell_bins)
+        bin_obj = log_binning_carlos(ell_max, ell_min, nell_bins)
     else:
         raise ValueError('nmt_ell_binning must be either "linear" or "log"')
 
@@ -1008,8 +1012,10 @@ if part_sky:
                                          w02=w02,
                                          w22=w22,
                                          compute_all_blocks=cfg['compute_all_blocks'])
-    # cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-    #                                            coupled, cw, w00, w02, w22, nbl_4covnmt)
+    # cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt_4covnmt, cl_te_4covnmt, cl_ee_4covnmt, cl_tb_4covnmt, cl_eb_4covnmt, cl_bb_4covnmt, zbins_use, nbl_eff,
+    #                                            cfg['coupled_nmt_cov'], cw, w00, w02, w22, nbl_4covnmt, compute_all_blocks=cfg['compute_all_blocks'])
+
+    np.save(f'{output_folder}/cov_Gauss_3x2pt_10D.npy', cov_nmt_10d)
 
     probename_dict = {
         'L': 0,
