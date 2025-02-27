@@ -622,7 +622,7 @@ elif part_sky:
     if cfg['nmt_ell_binning'] == 'linear':
         bin_obj = linear_binning(ell_max, ell_min, ells_per_band)
     elif cfg['nmt_ell_binning'] == 'log':
-        bin_obj = log_binning_carlos(ell_max, ell_min, nell_bins)
+        bin_obj = log_binning(ell_max, ell_min, nell_bins)
     else:
         raise ValueError('nmt_ell_binning must be either "linear" or "log"')
 
