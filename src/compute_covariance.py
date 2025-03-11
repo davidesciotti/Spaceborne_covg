@@ -1067,50 +1067,50 @@ elif part_sky:
     }
 
     # ! NAMASTER covariance
-if cfg['spin0']:
-    if cfg['coupled_nmt_cov']:
-        cov_nmt_10d = utils.nmt_gaussian_cov_spin0_coupled(cl_tt=cl_tt_4covnmt,
-                                                           cl_te=cl_te_4covnmt,
-                                                           cl_ee=cl_ee_4covnmt,
-                                                           zbins=zbins_use,
-                                                           nbl=nbl_eff,
-                                                           cw=cw, w00=w00,
-                                                           ells_in=ells_tot,
-                                                           ells_out=ells_eff,
-                                                           ells_out_edges=ells_eff_edges,
-                                                           weights=None,
-                                                           which_binning='mean')
-    else:
-        cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt=cl_tt_4covnmt,
-                                                   cl_te=cl_te_4covnmt,
-                                                   cl_ee=cl_ee_4covnmt,
-                                                   zbins=zbins_use,
-                                                   nbl=nbl_eff,
-                                                   cw=cw, w00=w00)
+    if cfg['spin0']:
+        if cfg['coupled_nmt_cov']:
+            cov_nmt_10d = utils.nmt_gaussian_cov_spin0_coupled(cl_tt=cl_tt_4covnmt,
+                                                            cl_te=cl_te_4covnmt,
+                                                            cl_ee=cl_ee_4covnmt,
+                                                            zbins=zbins_use,
+                                                            nbl=nbl_eff,
+                                                            cw=cw, w00=w00,
+                                                            ells_in=ells_tot,
+                                                            ells_out=ells_eff,
+                                                            ells_out_edges=ells_eff_edges,
+                                                            weights=None,
+                                                            which_binning='mean')
+        else:
+            cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt=cl_tt_4covnmt,
+                                                    cl_te=cl_te_4covnmt,
+                                                    cl_ee=cl_ee_4covnmt,
+                                                    zbins=zbins_use,
+                                                    nbl=nbl_eff,
+                                                    cw=cw, w00=w00)
 
-
-else:
-    if cfg['coupled_nmt_cov']:
-        cov_nmt_10d = utils.nmt_gaussian_cov_coupled(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt,
-                                                     cl_ee=cl_ee_4covnmt, cl_tb=cl_tb_4covnmt,
-                                                     cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
-                                                     zbins=zbins_use,
-                                                     nbl=nbl_eff,
-                                                     cw=cw, w00=w00, w02=w02, w22=w22,
-                                                     compute_all_blocks=cfg['compute_all_blocks'],
-                                                     ells_in=ells_tot,
-                                                     ells_out=ells_eff,
-                                                     ells_out_edges=ells_eff_edges,
-                                                     weights=None,
-                                                     which_binning='mean')
 
     else:
-        cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt, cl_ee=cl_ee_4covnmt,
-                                            cl_tb=cl_tb_4covnmt, cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
-                                            zbins=zbins_use,
-                                            nbl=nbl_eff,
-                                            cw=cw, w00=w00, w02=w02, w22=w22,
-                                            compute_all_blocks=cfg['compute_all_blocks'])
+        if cfg['coupled_nmt_cov']:
+            cov_nmt_10d = utils.nmt_gaussian_cov_coupled(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt,
+                                                        cl_ee=cl_ee_4covnmt, cl_tb=cl_tb_4covnmt,
+                                                        cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
+                                                        zbins=zbins_use,
+                                                        nbl=nbl_eff,
+                                                        cw=cw, w00=w00, w02=w02, w22=w22,
+                                                        compute_all_blocks=cfg['compute_all_blocks'],
+                                                        ells_in=ells_tot,
+                                                        ells_out=ells_eff,
+                                                        ells_out_edges=ells_eff_edges,
+                                                        weights=None,
+                                                        which_binning='mean')
+
+        else:
+            cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt, cl_ee=cl_ee_4covnmt,
+                                                cl_tb=cl_tb_4covnmt, cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
+                                                zbins=zbins_use,
+                                                nbl=nbl_eff,
+                                                cw=cw, w00=w00, w02=w02, w22=w22,
+                                                compute_all_blocks=cfg['compute_all_blocks'])
 
     np.save(f'{output_folder}/cov_Gauss_3x2pt_10D.npy', cov_nmt_10d)
 
