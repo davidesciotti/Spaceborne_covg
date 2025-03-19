@@ -14,22 +14,11 @@ from tqdm import tqdm
 ROOT = os.getenv('ROOT')
 
 
-def sample_covariance(
-    cl_GG_unbinned,
-    cl_LL_unbinned,
-    cl_GL_unbinned,
-    cl_BB_unbinned,
-    cl_EB_unbinned,
-    cl_TB_unbinned,
-    nbl,
-    zbins,
-    mask,
-    nside,
-    nreal,
-    coupled_cls,
-    which_cls,
-    lmax=None,
-):
+def sample_covariance( # fmt: skip
+    cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, 
+    cl_BB_unbinned, cl_EB_unbinned, cl_TB_unbinned, 
+    nbl, zbins, mask, nside, nreal, coupled_cls, which_cls, lmax=None,
+):  # fmt: skip
     if lmax is None:
         lmax = 3 * nside - 1
 
@@ -45,7 +34,8 @@ def sample_covariance(
 
     # 1. produce correlated maps
     print(
-        f'Generating {nreal} maps for nside {nside} and computing pseudo-cls with {which_cls}...'
+        f'Generating {nreal} maps for nside {nside} '
+        f'and computing pseudo-cls with {which_cls}...'
     )
 
     cl_ring_big_list = build_cl_tomo_TEB_ring_ord(
@@ -169,7 +159,8 @@ def build_cl_tomo_TEB_ring_ord(
     ), 'All input arrays must have the same shape.'
     assert cl_TT.ndim == 3, 'the ell axis should be present for all input arrays'
 
-    # Iterate over redshift bins and spectra types to construct the matrix of combinations
+    # Iterate over redshift bins and spectra types to construct the 
+    # matrix of combinations
     row_idx = 0
     matrix = []
     for zi in range(0, zbins):
@@ -653,12 +644,12 @@ elif part_sky:
     nside = cfg['nside']
     nreal = cfg['nreal']
     zbins_use = cfg['zbins_use']
-    coupled_cls = cfg['coupled_cls']
+    coupled = cfg['coupled']
     use_INKA = cfg['use_INKA']
     which_cls = cfg['which_cls']
-    coupled_cls_label = 'coupled_cls' if coupled_cls else 'uncoupled_cls'
+    coupled_label = 'coupled' if coupled else 'decoupled'
 
-    # if use_INKA and cfg['coupled_nmt_cov'] :
+    # if use_INKA and cfg['coupled'] :
     #     raise ValueError('Cannot do iNKA for coupled Cls covariance.')
 
     # read or generate mask
@@ -1244,31 +1235,31 @@ elif part_sky:
         cl_GG_4covnmt = np.zeros_like(cl_GG_unbinned)
         cl_GL_4covnmt = np.zeros_like(cl_GL_unbinned)
         cl_LL_4covnmt = np.zeros_like(cl_LL_unbinned)
-        for zi in range(zbins_use):
-            for zj in range(zbins_use):
-                cl_GG_4covnmt[:, zi, zj] = (
-                    w00.couple_cell([cl_GG_unbinned[:, zi, zj]])[0] / fsky
-                )
-                cl_GL_4covnmt[:, zi, zj] = (
-                    w02.couple_cell(
-                        [
-                            cl_GL_unbinned[:, zi, zj],
-                            np.zeros_like(cl_GL_unbinned[:, zi, zj]),
-                        ]
-                    )[0]
-                    / fsky
-                )
-                cl_LL_4covnmt[:, zi, zj] = (
-                    w22.couple_cell(
-                        [
-                            cl_LL_unbinned[:, zi, zj],
-                            np.zeros_like(cl_LL_unbinned[:, zi, zj]),
-                            np.zeros_like(cl_LL_unbinned[:, zi, zj]),
-                            np.zeros_like(cl_LL_unbinned[:, zi, zj]),
-                        ]
-                    )[0]
-                    / fsky
-                )
+        z_combinations = list(itertools.product(range(zbins_use), repeat=2))
+        for zi, zj in z_combinations:
+            cl_GG_4covnmt[:, zi, zj] = (
+                w00.couple_cell([cl_GG_unbinned[:, zi, zj]])[0] / fsky
+            )
+            cl_GL_4covnmt[:, zi, zj] = (
+                w02.couple_cell(
+                    [
+                        cl_GL_unbinned[:, zi, zj],
+                        np.zeros_like(cl_GL_unbinned[:, zi, zj]),
+                    ]
+                )[0]
+                / fsky
+            )
+            cl_LL_4covnmt[:, zi, zj] = (
+                w22.couple_cell(
+                    [
+                        cl_LL_unbinned[:, zi, zj],
+                        np.zeros_like(cl_LL_unbinned[:, zi, zj]),
+                        np.zeros_like(cl_LL_unbinned[:, zi, zj]),
+                        np.zeros_like(cl_LL_unbinned[:, zi, zj]),
+                    ]
+                )[0]
+                / fsky
+            )
 
         # TODO not super sure about this
         # cl_GG_4covsb = pcl_GG_nmt[:, :zbins_use, :zbins_use] / fsky
@@ -1282,6 +1273,7 @@ elif part_sky:
         # cl_GL_4covsb = cl_GL_unbinned[:, :zbins_use, :zbins_use]
         # cl_LL_4covsb = cl_LL_unbinned[:, :zbins_use, :zbins_use]
 
+    # the noise is needed also for the SIM and NMT covs
     noise_3x2pt_4d = utils.build_noise(
         zbins_use,
         n_probes,
@@ -1322,7 +1314,7 @@ elif part_sky:
             nbl=nbl_eff,
             cw=cw,
             w00=w00,
-            coupled=cfg['coupled_nmt_cov'],
+            coupled=cfg['coupled'],
             ells_in=ells_tot,
             ells_out=ells_eff,
             ells_out_edges=ells_eff_edges,
@@ -1344,7 +1336,7 @@ elif part_sky:
             w00=w00,
             w02=w02,
             w22=w22,
-            coupled=cfg['coupled_nmt_cov'],
+            coupled=cfg['coupled'],
             ells_in=ells_tot,
             ells_out=ells_eff,
             ells_out_edges=ells_eff_edges,
@@ -1370,22 +1362,6 @@ elif part_sky:
     cl_3x2pt_5d[0, 1, :, :, :] = cl_GL_4covsb.transpose(0, 2, 1)
     cl_3x2pt_5d[1, 1, :, :, :] = cl_GG_4covsb
 
-    # noise_3x2pt_4d = utils.build_noise(
-    #     zbins_use,
-    #     n_probes,
-    #     sigma_eps2=sigma_eps2,
-    #     ng_shear=n_gal_shear,
-    #     ng_clust=n_gal_clustering,
-    #     EP_or_ED=EP_or_ED,
-    # )
-    # noise_3x2pt_5d = np.zeros((n_probes, n_probes, nbl_4covsb, zbins_use, zbins_use))
-    # for probe_A in (0, 1):
-    #     for probe_B in (0, 1):
-    #         for ell_idx in range(nbl_4covsb):
-    #             noise_3x2pt_5d[probe_A, probe_B, ell_idx, :, :] = noise_3x2pt_4d[
-    #                 probe_A, probe_B, ...
-    #             ]
-
     # TODO return only diag
     cov_sb_10d = utils.covariance_einsum(
         cl_3x2pt_5d,
@@ -1408,7 +1384,7 @@ elif part_sky:
         'nside': nside,
         'int_survey_area_deg2': int(survey_area_deg2),
         'which_cls': which_cls,
-        'coupled_cls': str(coupled_cls),
+        'coupled': str(coupled),
         'use_INKA': str(use_INKA),
         'zbins_use': zbins_use,
     }
@@ -1429,7 +1405,7 @@ elif part_sky:
             mask=mask,
             nside=nside,
             nreal=nreal,
-            coupled_cls=coupled_cls,
+            coupled_cls=coupled,
             which_cls=which_cls,
             lmax=lmax_eff,
         )
@@ -1725,7 +1701,7 @@ elif part_sky:
 
     fig.suptitle(
         f'Total cov diag\nnreal={nreal}, {int(survey_area_deg2)} deg2, '
-        f'which_pcls={cfg["which_cls"]}\nmask shape={cfg["mask_shape"]}, coupled_cls={coupled_cls}'
+        f'which_pcls={cfg["which_cls"]}\nmask shape={cfg["mask_shape"]}, coupled_cls={coupled}'
         f'\nuse_INKA {use_INKA}',
         y=1.07,
     )
@@ -2067,7 +2043,7 @@ elif part_sky:
     # plt.semilogy(eigen_sim, label='sim cov', ls='--')
     plt.xlabel('eigenvalue index')
     plt.ylabel('eigenvalue')
-    plt.title(f'coupled {cfg["coupled_nmt_cov"]}, iNKA {use_INKA}')
+    plt.title(f'coupled {cfg["coupled"]}, iNKA {use_INKA}')
     plt.legend()
     plt.show()
 
