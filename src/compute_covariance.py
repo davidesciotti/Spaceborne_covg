@@ -1419,7 +1419,6 @@ elif part_sky:
             np.save(cfg['sim_cls_name'].format(probe='LL', **settings_dict), sim_cl_LL)
 
     # # ! BIN COVARIANCE MATRICES IF NEEDED
-    from spaceborne import sb_lib as sl
     binned_shape = (nbl_eff, nbl_eff)
     z_combinations = list(itertools.product(range(zbins_use), repeat=4))
     for zi, zj, zk, zl in z_combinations:
