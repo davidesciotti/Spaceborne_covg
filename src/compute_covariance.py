@@ -159,7 +159,7 @@ def build_cl_tomo_TEB_ring_ord(
     ), 'All input arrays must have the same shape.'
     assert cl_TT.ndim == 3, 'the ell axis should be present for all input arrays'
 
-    # Iterate over redshift bins and spectra types to construct the 
+    # Iterate over redshift bins and spectra types to construct the
     # matrix of combinations
     row_idx = 0
     matrix = []
@@ -951,7 +951,7 @@ elif part_sky:
                 cls_in=cl_GG_unbinned[ix_ells_bpw, zi, zj],
                 weights=None,
                 ells_eff=ells_eff,
-                which_binning='mean',
+                which_binning='sum',
             )
             cl_GL_bpw_dav[:, zi, zj] = utils.bin_cell(
                 ells_in=ells_bpw,
@@ -960,7 +960,7 @@ elif part_sky:
                 cls_in=cl_GL_unbinned[ix_ells_bpw, zi, zj],
                 weights=None,
                 ells_eff=ells_eff,
-                which_binning='mean',
+                which_binning='sum',
             )
             cl_LL_bpw_dav[:, zi, zj] = utils.bin_cell(
                 ells_in=ells_bpw,
@@ -969,7 +969,7 @@ elif part_sky:
                 cls_in=cl_LL_unbinned[ix_ells_bpw, zi, zj],
                 weights=None,
                 ells_eff=ells_eff,
-                which_binning='mean',
+                which_binning='sum',
             )
 
     # generate sample fields
@@ -1319,7 +1319,7 @@ elif part_sky:
             ells_out=ells_eff,
             ells_out_edges=ells_eff_edges,
             weights=None,
-            which_binning='mean',
+            which_binning='sum',
         )
 
     else:
@@ -1341,7 +1341,7 @@ elif part_sky:
             ells_out=ells_eff,
             ells_out_edges=ells_eff_edges,
             weights=None,
-            which_binning='mean',
+            which_binning='sum',
         )
 
     np.save(f'{output_folder}/cov_Gauss_3x2pt_10D.npy', cov_nmt_10d)
@@ -1419,11 +1419,11 @@ elif part_sky:
             np.save(cfg['sim_cls_name'].format(probe='LL', **settings_dict), sim_cl_LL)
 
     # # ! BIN COVARIANCE MATRICES IF NEEDED
-    # # ! This is quite ugly, find a way to vectorize, + avoid repeated code to bin the nmt/sb covariances
+    from spaceborne import sb_lib as sl
     binned_shape = (nbl_eff, nbl_eff)
     z_combinations = list(itertools.product(range(zbins_use), repeat=4))
     for zi, zj, zk, zl in z_combinations:
-        for i, block_name in enumerate(cov_blocks_names_all):
+        for block_name in cov_blocks_names_all:
             probe_idxs = (
                 probename_dict[block_name[0]],
                 probename_dict[block_name[1]],
@@ -1440,38 +1440,32 @@ elif part_sky:
                     ells_out=ells_eff,
                     ells_out_edges=ells_eff_edges,
                     weights=None,
-                    which_binning='mean',
+                    which_binning='sum',
                 )
-                # TODO delete this
-                # bin_cov_sb_10d[probe_idxs][:, :, zi, zj, zk, zl] = utils.bin_cell(
-                #     cls_in=cov_sb_9d[probe_idxs][:, zi, zj, zk, zl],
-                #     ells_in=ells_4covsb,
-                #     ells_out=ells_eff,
-                #     ells_out_edges=ells_eff_edges,
-                #     weights=None,
-                #     which_binning='mean',
-                # )
+
+
+
 
             if cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != binned_shape:
                 print(f'Binning NaMaster {block_name} covariance')
-                cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl] = utils.bin_2d_matrix(
+                cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl] = sl.bin_2d_matrix(
                     cov=cov_nmt_10d[probe_idxs][:, :, zi, zj, zk, zl],
                     ells_in=ells_tot,
                     ells_out=ells_eff,
                     ells_out_edges=ells_eff_edges,
                     weights=None,
-                    which_binning='mean',
+                    which_binning='sum',
                 )
 
             if cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != binned_shape:
                 print(f'Binning sample {block_name} covariance')
-                cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl] = utils.bin_2d_matrix(
+                cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl] = sl.bin_2d_matrix(
                     cov=cov_sim_10d[probe_idxs][:, :, zi, zj, zk, zl],
                     ells_in=ells_tot,
                     ells_out=ells_eff,
                     ells_out_edges=ells_eff_edges,
                     weights=None,
-                    which_binning='mean',
+                    which_binning='sum',
                 )
 
     # ! reshape the total 10d arrays to 4d
@@ -1754,7 +1748,8 @@ elif part_sky:
     label = r'cov_{code:s}, $\ell^\prime=\ell+{off_diag:d}$'
     diag_label = '$\\ell^\prime=\\ell$'
     title = (
-        f'cov {block}\nsurvey_area = {survey_area_deg2} deg2\n{cfg["nmt_ell_binning"]} binning,'
+        f'cov {block}\nsurvey_area = {survey_area_deg2} deg2'
+        f'\n{cfg["nmt_ell_binning"]} binning,'
         f' $\Delta\ell={delta_ells_bpw[0]:.1f}$, use_INKA {use_INKA}'
         f'\nzi={zi}, zj={zj}, zk={zk}, zl={zl}'
     )
@@ -1787,7 +1782,14 @@ elif part_sky:
         marker='.',
         c=clr[1],
     )
-    # ax[0].loglog(ells_eff, np.diag(cov_sims_nmt), label=f'cov_sims_nmt, {diag_label}', marker='.', c=clr[0], ls=':')
+    # ax[0].loglog(
+    #     ells_eff,
+    #     np.diag(cov_sims_nmt),
+    #     label=f'cov_sims_nmt, {diag_label}',
+    #     marker='.',
+    #     c=clr[0],
+    #     ls=':',
+    # )
 
     for k in range(1, 2):
         diag_nmt = np.diag(cov_nmt_plt, k=k)
@@ -1834,8 +1836,14 @@ elif part_sky:
         c=clr[1],
         ls='-',
     )
-    # ax[1].plot(get_lmid(ells_eff, k=1), utils.percent_diff(np.diag(cov_sim_plt, k=1), np.diag(cov_nmt_plt, k=1)),
-    #            marker='.', label='sim/nmt, k=1', c=clr[1], ls='--')
+    # ax[1].plot(
+    #     get_lmid(ells_eff, k=1),
+    #     utils.percent_diff(np.diag(cov_sim_plt, k=1), np.diag(cov_nmt_plt, k=1)),
+    #     marker='.',
+    #     label='sim/nmt, k=1',
+    #     c=clr[1],
+    #     ls='--',
+    # )
 
     ax[1].set_ylabel('% diff cov fsky/part_sky')
     ax[1].set_xlabel(r'$\ell$')
