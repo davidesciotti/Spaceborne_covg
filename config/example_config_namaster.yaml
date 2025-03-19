@@ -59,8 +59,8 @@ use_INKA: True
 save_sim_maps: False
 save_sample_cov: False
 load_sample_cov: False
-sample_cov_name: "../output/cov_sim_10d_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled_cls:s}_noiseTrue_zbins{zbins_use:d}.npy"
-sim_cls_name: "../output/sim_cl_{probe:s}_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled_cls:s}_noiseTrue_zbins{zbins_use:d}.npy"
+sample_cov_name: "../output/cov_sim_10d_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled:s}_noiseTrue_zbins{zbins_use:d}.npy"
+sim_cls_name: "../output/sim_cl_{probe:s}_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled:s}_noiseTrue_zbins{zbins_use:d}.npy"
 
 # datavector and covariance ordering options
 triu_tril: "triu" # or 'tril'. Which elements of the (symmetric) auto-spectra are kept
