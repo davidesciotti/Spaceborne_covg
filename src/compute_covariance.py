@@ -392,7 +392,6 @@ def sample_cov_nmt(zi, probe):
 #     b = nmt.NmtBin.from_edges(elli, elle)
 #     return b
 
-
 def linear_binning(lmax, lmin, bw, w=None):
 
     nbl = (lmax - lmin) // bw + 1
@@ -402,7 +401,6 @@ def linear_binning(lmax, lmin, bw, w=None):
     b = nmt.NmtBin(bpws=i, ells=ell, weights=w, lmax=lmax)
 
     return b
-
 
 def log_binning(lmax, lmin, nbl, w=None):
     op = np.log10
@@ -415,6 +413,10 @@ def log_binning(lmax, lmin, nbl, w=None):
 
     return b
 
+def log_binning_carlos(lmax, lmin, nbl):
+    bpw_edges = np.logspace(np.log10(lmin), np.log10(lmax), nbl, dtype=int)
+    bins = nmt.NmtBin.from_edges(ell_ini=bpw_edges[:-1], ell_end=bpw_edges[1:])
+    return bins
 
 def get_lmid(ells, k):
     return 0.5 * (ells[k:] + ells[:-k])
@@ -566,6 +568,9 @@ elif part_sky:
     use_INKA = cfg['use_INKA']
     which_cls = cfg['which_cls']
     coupled_cls_label = 'coupled_cls' if coupled_cls else 'uncoupled_cls'
+
+    # if use_INKA and cfg['coupled_nmt_cov'] :
+    #     raise ValueError('Cannot do iNKA for coupled Cls covariance.')
 
     # read or generate mask
     if cfg['read_mask']:
@@ -1073,19 +1078,53 @@ elif part_sky:
         'nbl_eff': nbl_eff,
     }
 
-    cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt, cl_ee=cl_ee_4covnmt,
-                                         cl_tb=cl_tb_4covnmt, cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
-                                         zbins=zbins_use,
-                                         nbl=_nbl,
-                                         coupled=cfg['coupled_nmt_cov'],
-                                         cw=cw,
-                                         w00=w00,
-                                         w02=w02,
-                                         w22=w22,
-                                         compute_all_blocks=cfg['compute_all_blocks'],
-                                         **kwargs)
-    # cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins_use, nbl_eff,
-    #                                            coupled, cw, w00, w02, w22, nbl_4covnmt)
+    # ! NAMASTER covariance
+    if cfg['spin0']:
+        if cfg['coupled_nmt_cov']:
+            cov_nmt_10d = utils.nmt_gaussian_cov_spin0_coupled(cl_tt=cl_tt_4covnmt,
+                                                            cl_te=cl_te_4covnmt,
+                                                            cl_ee=cl_ee_4covnmt,
+                                                            zbins=zbins_use,
+                                                            nbl=nbl_eff,
+                                                            cw=cw, w00=w00,
+                                                            ells_in=ells_tot,
+                                                            ells_out=ells_eff,
+                                                            ells_out_edges=ells_eff_edges,
+                                                            weights=None,
+                                                            which_binning='mean')
+        else:
+            cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt=cl_tt_4covnmt,
+                                                    cl_te=cl_te_4covnmt,
+                                                    cl_ee=cl_ee_4covnmt,
+                                                    zbins=zbins_use,
+                                                    nbl=nbl_eff,
+                                                    cw=cw, w00=w00)
+
+
+    else:
+        if cfg['coupled_nmt_cov']:
+            cov_nmt_10d = utils.nmt_gaussian_cov_coupled(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt,
+                                                        cl_ee=cl_ee_4covnmt, cl_tb=cl_tb_4covnmt,
+                                                        cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
+                                                        zbins=zbins_use,
+                                                        nbl=nbl_eff,
+                                                        cw=cw, w00=w00, w02=w02, w22=w22,
+                                                        compute_all_blocks=cfg['compute_all_blocks'],
+                                                        ells_in=ells_tot,
+                                                        ells_out=ells_eff,
+                                                        ells_out_edges=ells_eff_edges,
+                                                        weights=None,
+                                                        which_binning='mean')
+
+        else:
+            cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt, cl_ee=cl_ee_4covnmt,
+                                                cl_tb=cl_tb_4covnmt, cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
+                                                zbins=zbins_use,
+                                                nbl=nbl_eff,
+                                                cw=cw, w00=w00, w02=w02, w22=w22,
+                                                compute_all_blocks=cfg['compute_all_blocks'])
+
+    np.save(f'{output_folder}/cov_Gauss_3x2pt_10D.npy', cov_nmt_10d)
 
     probename_dict = {
         'L': 0,
@@ -1114,12 +1153,10 @@ elif part_sky:
     #             noise_3x2pt_5d[probe_A, probe_B, ell_idx, :, :] = noise_3x2pt_4d[probe_A, probe_B, ...]
 
     # TODO return only diag
-    cov_sb_9d = utils.covariance_einsum(cl_3x2pt_5d, noise_3x2pt_5d, fsky,
+    cov_sb_10d = utils.covariance_einsum(cl_3x2pt_5d, noise_3x2pt_5d, fsky,
                                         ells_4covsb, delta_ells_4covsb,
-                                        return_only_diagonal_ells=True)
-    # cov_sb_10d = utils.covariance_einsum(cl_3x2pt_5d, noise_3x2pt_5d, fsky,
-    # ells_4covsb, delta_ells_4covsb,
-    # return_only_diagonal_ells=False)
+                                        return_only_diagonal_ells=False)
+
     bin_cov_sb_10d = np.zeros((n_probes, n_probes, n_probes, n_probes, nbl_eff,
                                nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
 
@@ -1173,27 +1210,14 @@ elif part_sky:
                 probename_dict[block_name[0]], probename_dict[block_name[1]], \
                 probename_dict[block_name[2]], probename_dict[block_name[3]]
 
-            if cov_sb_9d[probe_idxs][:, zi, zj, zk, zl].shape != (nbl_eff):
+            if cov_sb_10d[probe_idxs][:, :, zi, zj, zk, zl].shape != (nbl_eff, nbl_eff):
                 print(f'Binning Spaceborne {block_name} covariance')
 
-                binned_block_1d = utils.bin_cell(cls_in=cov_sb_9d[probe_idxs][:, zi, zj, zk, zl],
-                                                 ells_in=ells_4covsb, ells_out=ells_eff,
-                                                 ells_out_edges=ells_eff_edges, weights=None,
-                                                 which_binning='mean', ells_eff=ells_eff)
-                # I get the same result with
-                # binned_block_1d = bin_obj.bin_cell(cov_sb_9d[probe_idxs][:, zi, zj, zk, zl])
-                
-                # from spaceborne import sb_lib as sl 
-                # binned_block_2d = sl.bin_2d_matrix(cov=np.diag(cov_sb_9d[probe_idxs][:, zi, zj, zk, zl]), 
-                #                                    ells_in=ells_4covsb, 
-                #                                    ells_out=ells_eff, ells_out_edges=ells_eff_edges, 
-                #                                    weights_in=None,)
-                # binned_block_1d = np.diag(binned_block_2d)
-                
-
-                # fill the diagonal
-                bin_cov_sb_10d[probe_idxs][:, :, zi, zj, zk, zl] = np.diag(binned_block_1d)
-
+                bin_cov_sb_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
+                    utils.bin_2d_matrix(cov=cov_sb_10d[probe_idxs][:, :, zi, zj, zk, zl],
+                                        ells_in=ells_tot, ells_out=ells_eff,
+                                        ells_out_edges=ells_eff_edges, weights=None,
+                                        which_binning='mean')
                 # TODO delete this
                 # bin_cov_sb_10d[probe_idxs][:, :, zi, zj, zk, zl] = \
                 #     utils.bin_cell(cls_in=cov_sb_9d[probe_idxs][:, zi, zj, zk, zl],
