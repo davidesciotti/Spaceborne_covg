@@ -1066,18 +1066,6 @@ elif part_sky:
     cl_eb_4covsim = np.zeros_like(cl_tt_4covsim)
     cl_bb_4covsim = np.zeros_like(cl_tt_4covsim)
 
-    # ! NAMASTER covariance
-    if cfg['coupled_nmt_cov']:
-        _nbl = nbl_tot
-    elif not cfg['coupled_nmt_cov']:
-        _nbl = nbl_eff
-
-    kwargs = {
-        'ells_tot': ells_tot,
-        'ells_eff': ells_eff,
-        'ells_eff_edges': ells_eff_edges,
-        'nbl_eff': nbl_eff,
-    }
 
     # ! NAMASTER covariance
     if cfg['spin0']:
@@ -1147,11 +1135,11 @@ elif part_sky:
                                nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
 
 
+    # ! SAMPLE COVARIANCE
     settings_dict = {'nreal': nreal, 'nside': nside, 'int_survey_area_deg2': int(survey_area_deg2),
                      'which_cls': which_cls, 'coupled_cls': str(coupled_cls), 'use_INKA': str(use_INKA),
                      'zbins_use': zbins_use}
     sample_cov_name = cfg['sample_cov_name'].format(**settings_dict)
-    # ! SAMPLE COVARIANCE
     if cfg['load_sample_cov']:
         cov_sim_10d = np.load(sample_cov_name)
 
