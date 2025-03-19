@@ -1,14 +1,15 @@
-from copy import deepcopy
 import itertools
+import os
 import time
-from matplotlib import cm
+from copy import deepcopy
+
 import matplotlib.pyplot as plt
 import numpy as np
+import utils
+import yaml
+from matplotlib import cm
 from scipy.stats import chi2
 from tqdm import tqdm
-import yaml
-import utils
-import os
 
 ROOT = os.getenv('ROOT')
 
@@ -448,25 +449,6 @@ def sample_cov_nmt(zi, probe):
     return sample_cov
 
 
-# def linear_binning(lmax, lmin, bw):
-
-#     bins = np.linspace(lmin, lmax + 1, nbl + 1)
-#     ell = np.arange(lmin, lmax+1)
-#     i = np.digitize(ell, bins)-1
-#     b = nmt.NmtBin(bpws=i, ells=ell, weights=w, lmax=lmax)
-
-#     nbl = (lmax-lmin)//bw + 1
-#     elli = np.zeros(nbl, int)
-#     elle = np.zeros(nbl, int)
-
-#     for i in range(nbl):
-#         elli[i] = lmin + i*bw
-#         elle[i] = lmin + (i+1)*bw
-
-#     b = nmt.NmtBin.from_edges(elli, elle)
-#     return b
-
-
 def linear_binning(lmax, lmin, bw, w=None):
     nbl = (lmax - lmin) // bw + 1
     bins = np.linspace(lmin, lmax + 1, nbl + 1)
@@ -511,7 +493,7 @@ cov_blocks_names_all = (  # fmt: skip
 # import the yaml config file
 # cfg = yaml.load(sys.stdin, Loader=yaml.FullLoader)
 # if you want to execute without passing the path
-with open(f'{ROOT}/Spaceborne_covg/config/example_config_namaster.yaml', 'r') as file:
+with open(f'{ROOT}/Spaceborne_covg/config/example_config_namaster.yaml') as file:
     cfg = yaml.safe_load(file)
 
 survey_area_deg2 = cfg['survey_area_deg2']  # deg^2
@@ -663,8 +645,8 @@ elif part_sky:
 
     # TODO check implementation by R. Upham: https://github.com/robinupham/shear_pcl_cov/blob/main/shear_pcl_cov/gaussian_cov.py
     import healpy as hp
-    import pymaster as nmt
     import pyccl as ccl
+    import pymaster as nmt
 
     ells_unbinned = np.arange(5000)
     ells_per_band = cfg['ells_per_band']
@@ -1188,21 +1170,21 @@ elif part_sky:
         plt.figure()
         clr = cm.rainbow(np.linspace(0, 1, zbins_use))
 
-        plt.plot(ells_tot, hp_pcl[:, zi, zj], label=f'hp pseudo-cl', alpha=0.7)
+        plt.plot(ells_tot, hp_pcl[:, zi, zj], label='hp pseudo-cl', alpha=0.7)
         plt.plot(
-            ells_tot, nmt_pcl[:, zi, zj], label=f'nmt pseudo-cl', alpha=0.7, ls='--'
+            ells_tot, nmt_pcl[:, zi, zj], label='nmt pseudo-cl', alpha=0.7, ls='--'
         )
         plt.plot(
-            ells_eff, master_cl[:, zi, zj], label=f'MASTER-cl', alpha=0.7, marker='.'
+            ells_eff, master_cl[:, zi, zj], label='MASTER-cl', alpha=0.7, marker='.'
         )
-        plt.plot(ells_tot, pseudo_cl_dav[:, zi, zj], label=f'dav pseudo-cl', alpha=0.7)
+        plt.plot(ells_tot, pseudo_cl_dav[:, zi, zj], label='dav pseudo-cl', alpha=0.7)
 
         plt.scatter(
-            ells_eff, cl_th_bpw[:, zi, zj] * fsky, marker='.', label=f'bpw th cls*fsky'
+            ells_eff, cl_th_bpw[:, zi, zj] * fsky, marker='.', label='bpw th cls*fsky'
         )
-        plt.plot(ells_tot, cl_th_unbinned[:, zi, zj], label=f'unbinned th cls')
+        plt.plot(ells_tot, cl_th_unbinned[:, zi, zj], label='unbinned th cls')
         plt.plot(
-            ells_tot, cl_th_unbinned[:, zi, zj] * fsky, label=f'unbinned th cls*fsky'
+            ells_tot, cl_th_unbinned[:, zi, zj] * fsky, label='unbinned th cls*fsky'
         )
 
         plt.xlabel(r'$\ell$')
@@ -1914,9 +1896,9 @@ elif part_sky:
     cax2 = ax[1, 0].matshow(np.log10(np.fabs(cov_nmt_plt)))
     cax3 = ax[2, 0].matshow(np.log10(np.fabs(cov_sim_plt)))
     cax4 = ax[3, 0].matshow(np.log10(mask_cov_abs_diff_sims))
-    ax[0, 0].set_title(f'log10 abs \nfull_sky/fsky cov')
-    ax[1, 0].set_title(f'log10 abs \nNaMaster cov')
-    ax[2, 0].set_title(f'log10 abs \nsim cov')
+    ax[0, 0].set_title('log10 abs \nfull_sky/fsky cov')
+    ax[1, 0].set_title('log10 abs \nNaMaster cov')
+    ax[2, 0].set_title('log10 abs \nsim cov')
     ax[3, 0].set_title(f'log10 abs \nsim/nmt [%]\n{threshold}% threshold')
     fig.colorbar(cax0, ax=ax[0, 0])
     fig.colorbar(cax2, ax=ax[1, 0])
@@ -1934,9 +1916,9 @@ elif part_sky:
     cbar_corr_4 = ax[3, 1].matshow(
         np.log10(mask_corr_abs_diff_sims), cmap='RdBu_r'
     )  # Apply same cmap and limits
-    ax[0, 1].set_title(f'full_sky/fsky corr')
-    ax[1, 1].set_title(f'NaMaster corr')
-    ax[2, 1].set_title(f'sim corr')
+    ax[0, 1].set_title('full_sky/fsky corr')
+    ax[1, 1].set_title('NaMaster corr')
+    ax[2, 1].set_title('sim corr')
     ax[3, 1].set_title(f'log10 abs \nsim/nmt [%]\n{threshold}% threshold')
     fig.colorbar(cbar_corr_1, ax=ax[0, 1])
     fig.colorbar(cbar_corr_2, ax=ax[1, 1])
