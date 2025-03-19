@@ -1408,7 +1408,7 @@ elif part_sky:
             coupled_cls=coupled,
             which_cls=which_cls,
             lmax=lmax_eff,
-        )
+        ) 
 
         if cfg['save_sample_cov']:
             np.save(sample_cov_name, cov_sim_10d)
