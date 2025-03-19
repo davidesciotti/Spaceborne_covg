@@ -586,7 +586,7 @@ def bin_cell(ells_in, ells_out, ells_out_edges, cls_in, weights, which_binning, 
             binned_cls[ell_idx] = integral / np.sum(weights_masked)
 
         elif which_binning == 'mean':
-            binned_cls[ell_idx] = np.mean(cls_masked)
+            binned_cls[ell_idx] = np.sum(cls_masked * weights_masked) / np.sum(weights_masked)
 
         else:
             raise ValueError('which_binning should be "mean" or "integral"')
