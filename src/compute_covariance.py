@@ -56,7 +56,7 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
 
         # compute correlated maps
         corr_maps_gg = [hp.alm2map(alm, nside, lmax=lmax) for alm in corr_alms]
-        corr_maps_ll = [hp.alm2map_spin(alms=[Elm, Blm], nside=nside, spin=2, lmax=lmax) 
+        corr_maps_ll = [hp.alm2map_spin(alms=[Elm, Blm], nside=nside, spin=2, lmax=lmax)
                         for (Elm, Blm) in corr_Elms_Blms]
 
         # * 2. compute and bin simulated cls for all zbin combinations, using input correlated maps
@@ -201,10 +201,10 @@ def cls_to_maps(cl_TT, cl_EE, cl_BB, cl_TE, nside, lmax=None):
         numpy.ndarray, numpy.ndarray, numpy.ndarray: Temperature map, Q-mode polarization map, U-mode polarization map.
     """
     if lmax is None:
-        # note: this seems to be causing issues for EE when lmax_eff is significantly 
+        # note: this seems to be causing issues for EE when lmax_eff is significantly
         # lower than 3 * nside - 1
         lmax = 3 * nside - 1
-        
+
     alm, Elm, Blm = hp.synalm(cls=[cl_TT, cl_EE, cl_BB, cl_TE, 0 * cl_TE, 0 * cl_TE],
                               lmax=lmax, new=True)
     map_Q, map_U = hp.alm2map_spin(alms=[Elm, Blm], nside=nside, spin=2, lmax=lmax)
@@ -581,7 +581,7 @@ elif part_sky:
             # Save the actual DR1 mask to a new FITS file
             # output_path = mask_path.replace(".fits", "_DR1.fits")
             # hp.write_map(output_path, mask, dtype=np.float64, overwrite=True)
-        elif mask_path.endswith('footprint-gal-12_DR1.fits'):
+        elif mask_path.endswith('.fits'):
             mask = hp.read_map(mask_path)
         elif mask_path.endswith('.npy'):
             mask = np.load(mask_path)
@@ -1231,17 +1231,17 @@ elif part_sky:
     cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_nmt_4d, zbins_use, block_index='sylvain')
     cov_sb_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_sb_4d, zbins_use, block_index='sylvain')
     cov_sim_2d = utils.cov_4D_to_2DCLOE_3x2pt(cov_sim_4d, zbins_use, block_index='sylvain')
-    
+
 
     # ! check different zij x zjk blocks
     if fsky == 1:
         for ell_idx in range(nbl_eff):
-            np.testing.assert_allclose(cov_sb_4d[ell_idx, ell_idx, :, :], 
+            np.testing.assert_allclose(cov_sb_4d[ell_idx, ell_idx, :, :],
                                        cov_nmt_4d[ell_idx, ell_idx, :, :],
                                        atol=0, rtol=1e-3)
-            utils.compare_arrays(cov_sb_4d[ell_idx, ell_idx, :, :], 
+            utils.compare_arrays(cov_sb_4d[ell_idx, ell_idx, :, :],
                                  cov_nmt_4d[ell_idx, ell_idx, :, :])
-    
+
 
     # ! check symmetry of different blocks in ell1, ell2
     # print('checking symmetry of ell1xell1 covariance sub-blocks')
