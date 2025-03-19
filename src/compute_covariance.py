@@ -17,6 +17,7 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
 
     if lmax is None:
         lmax = 3 * nside - 1
+        
     SEEDVALUE = np.arange(nreal)
 
     # TODO use only independent z pairs
@@ -1080,49 +1081,34 @@ elif part_sky:
 
     # ! NAMASTER covariance
     if cfg['spin0']:
-        if cfg['coupled_nmt_cov']:
-            cov_nmt_10d = utils.nmt_gaussian_cov_spin0_coupled(cl_tt=cl_tt_4covnmt,
-                                                            cl_te=cl_te_4covnmt,
-                                                            cl_ee=cl_ee_4covnmt,
-                                                            zbins=zbins_use,
-                                                            nbl=nbl_eff,
-                                                            cw=cw, w00=w00,
-                                                            ells_in=ells_tot,
-                                                            ells_out=ells_eff,
-                                                            ells_out_edges=ells_eff_edges,
-                                                            weights=None,
-                                                            which_binning='mean')
-        else:
-            cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt=cl_tt_4covnmt,
-                                                    cl_te=cl_te_4covnmt,
-                                                    cl_ee=cl_ee_4covnmt,
-                                                    zbins=zbins_use,
-                                                    nbl=nbl_eff,
-                                                    cw=cw, w00=w00)
-
-
-    else:
-        if cfg['coupled_nmt_cov']:
-            cov_nmt_10d = utils.nmt_gaussian_cov_coupled(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt,
-                                                        cl_ee=cl_ee_4covnmt, cl_tb=cl_tb_4covnmt,
-                                                        cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
+        cov_nmt_10d = utils.nmt_gaussian_cov_spin0(cl_tt=cl_tt_4covnmt,
+                                                        cl_te=cl_te_4covnmt,
+                                                        cl_ee=cl_ee_4covnmt,
                                                         zbins=zbins_use,
                                                         nbl=nbl_eff,
-                                                        cw=cw, w00=w00, w02=w02, w22=w22,
-                                                        compute_all_blocks=cfg['compute_all_blocks'],
+                                                        cw=cw, 
+                                                        w00=w00,
+                                                        coupled=cfg['coupled_nmt_cov'],
                                                         ells_in=ells_tot,
                                                         ells_out=ells_eff,
                                                         ells_out_edges=ells_eff_edges,
                                                         weights=None,
                                                         which_binning='mean')
 
-        else:
-            cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt, cl_ee=cl_ee_4covnmt,
-                                                cl_tb=cl_tb_4covnmt, cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
-                                                zbins=zbins_use,
-                                                nbl=nbl_eff,
-                                                cw=cw, w00=w00, w02=w02, w22=w22,
-                                                compute_all_blocks=cfg['compute_all_blocks'])
+    else:
+        cov_nmt_10d = utils.nmt_gaussian_cov(cl_tt=cl_tt_4covnmt, cl_te=cl_te_4covnmt,
+                                            cl_ee=cl_ee_4covnmt, cl_tb=cl_tb_4covnmt,
+                                            cl_eb=cl_eb_4covnmt, cl_bb=cl_bb_4covnmt,
+                                            zbins=zbins_use,
+                                            nbl=nbl_eff,
+                                            cw=cw, 
+                                            w00=w00, w02=w02, w22=w22,
+                                            coupled=cfg['coupled_nmt_cov'],
+                                            ells_in=ells_tot,
+                                            ells_out=ells_eff,
+                                            ells_out_edges=ells_eff_edges,
+                                            weights=None,
+                                            which_binning='mean')
 
     np.save(f'{output_folder}/cov_Gauss_3x2pt_10D.npy', cov_nmt_10d)
 
@@ -1160,24 +1146,7 @@ elif part_sky:
     bin_cov_sb_10d = np.zeros((n_probes, n_probes, n_probes, n_probes, nbl_eff,
                                nbl_eff, zbins_use, zbins_use, zbins_use, zbins_use))
 
-    # ! SAMPLE COVARIANCE - FROM NAMASTER DOCS
-    if cfg['compute_namaster_sims']:
-        probe = block[0] + block[1]
-        cov_sims_nmt = sample_cov_nmt(zi, probe)
-        # Let's plot the error bars (first and second diagonals)
-        l_mid = get_lmid(ells_eff, k=1)
-        plt.figure()
-        plt.title('GG')
-        plt.plot(ells_eff, np.sqrt(np.diag(cov_nmt_plt)), 'r-', label='Analytical, 1st-diag.')
-        plt.plot(l_mid, np.sqrt(np.fabs(np.diag(cov_nmt_plt, k=1))), 'r--', label='Analytical, 2nd-diag.')
-        plt.plot(ells_eff, np.sqrt(np.diag(cov_sims_nmt)), 'g-', label='Simulated, 1st-diag.')
-        plt.plot(l_mid, np.sqrt(np.fabs(np.diag(cov_sims_nmt, k=1))), 'g--', label='Simulated, 2nd-diag.')
-        plt.xlabel(r'$\ell$', fontsize=16)
-        plt.ylabel(r'$\sigma(C_\ell)$', fontsize=16)
-        plt.yscale('log')
-        # plt.xscale('log')
-        plt.legend(fontsize=12, frameon=False)
-        plt.show()
+
     settings_dict = {'nreal': nreal, 'nside': nside, 'int_survey_area_deg2': int(survey_area_deg2),
                      'which_cls': which_cls, 'coupled_cls': str(coupled_cls), 'use_INKA': str(use_INKA),
                      'zbins_use': zbins_use}
