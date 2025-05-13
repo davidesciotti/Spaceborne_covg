@@ -45,7 +45,7 @@ def sample_covariance(cl_GG_unbinned, cl_LL_unbinned, cl_GL_unbinned, cl_BB_unbi
         np.random.seed(SEEDVALUE[i])
 
         # * 1. produce correlated alms
-        corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=3 * nside - 1, new=True)
+        corr_alms_tot = hp.synalm(cl_ring_big_list, lmax=1.5* nside, new=True)
         assert len(corr_alms_tot) == zbins * 3, 'wrong number of alms'
 
         # extract alm for TT, EE, BB
