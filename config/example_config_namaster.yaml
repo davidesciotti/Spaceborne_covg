@@ -1,8 +1,10 @@
 # options for the 3x2pt Gaussian covariance matrix computation
 # Author: Davide Sciotti
 
-zbins: 3 # number of redshift bins
-zbins_use: 3
+no_plots: False
+
+zbins: 6 # number of redshift bins
+zbins_use: 2
 EP_or_ED: "EP" # or 'ED'. Equipopulated or equidistant redshift bins
 
 ell_min: 10 # minimum ell for the angular power spectra
@@ -41,26 +43,24 @@ n_gal_path: null
 # sigma_eps = sigma_eps_i * sqrt(2), and the term entering the covariance is sigma_eps^2
 sigma_eps_i: 0.26
 # survey_area_deg2: 2500  # in deg^2
-survey_area_deg2: 2000  # in deg^2
+survey_area_deg2: 41252.96125  # in deg^2
 mask_shape: polar_cap #  str, shape of the survey ("polar_cap" or "square")
 nside: 512  # nside of the healpix mask and maps
 apodize_mask: True
 aposize: 0.1 # apodization scale in deg
 nreal: 5000 # number of Gaussian realisations
 load_simulated_cls: False  # whether to load simulated cls from file
-coupled_cls: False  # compute the covariance of the coupled or uncoupled cls
-coupled_nmt_cov: True  # compute the covariance of the coupled or uncoupled cls
+coupled: False  # compute the covariance of the coupled or decoupled cls
 spin0 : False
 compute_all_blocks: False  # compute all probe blocks of the nmt covariance
 which_ell_weights: get_weight_list()  # get_weight_list() or get_bandpower_windows()
-which_cls: namaster  # namaster or healpy (slower)
-compute_namaster_sims: False
+which_cls: namaster  # namaster or healpy
 use_INKA: True
 save_sim_maps: False
 save_sample_cov: False
 load_sample_cov: False
-sample_cov_name: "../output/cov_sim_10d_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled_cls:s}_noiseTrue_zbins{zbins_use:d}.npy"
-sim_cls_name: "../output/sim_cl_{probe:s}_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled_cls:s}_noiseTrue_zbins{zbins_use:d}.npy"
+sample_cov_name: "../output/cov_sim_10d_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled:s}_noiseTrue_zbins{zbins_use:d}.npy"
+sim_cls_name: "../output/sim_cl_{probe:s}_nreal{nreal:d}_nside{nside:d}_{int_survey_area_deg2:d}deg2_whichcls{which_cls:s}_coupled{coupled:s}_noiseTrue_zbins{zbins_use:d}.npy"
 
 # datavector and covariance ordering options
 triu_tril: "triu" # or 'tril'. Which elements of the (symmetric) auto-spectra are kept
