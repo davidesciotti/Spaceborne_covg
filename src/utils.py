@@ -346,27 +346,34 @@ def nmt_gaussian_cov(cl_tt, cl_te, cl_ee, cl_tb, cl_eb, cl_bb, zbins, nbl, cw, w
         covar_BB_BE = covar_22_22[:, 3, :, 2]
         covar_BB_BB = covar_22_22[:, 3, :, 3]
 
+        kw = {
+            'ells_in': ells_in,
+            'ells_out': ells_out,
+            'ells_out_edges': ells_out_edges,
+            'weights_in': weights,
+            'which_binning': which_binning
+        }
         if coupled:
             # in this case, the nmt output is unbinned
             cov_nmt_10d_arr[0, 0, 0, 0, :, :, zi, zj, zk, zl] = \
-                bin_2d_matrix(covar_EE_EE, ells_in, ells_out, ells_out_edges, which_binning, weights)
+                bin_2d_array(covar_EE_EE, **kw)
             cov_nmt_10d_arr[1, 0, 0, 0, :, :, zi, zj, zk, zl] = \
-                bin_2d_matrix(covar_TE_EE, ells_in, ells_out, ells_out_edges, which_binning, weights)
+                bin_2d_array(covar_TE_EE, **kw)
             cov_nmt_10d_arr[1, 0, 1, 0, :, :, zi, zj, zk, zl] = \
-                bin_2d_matrix(covar_TE_TE, ells_in, ells_out, ells_out_edges, which_binning, weights)
+                bin_2d_array(covar_TE_TE, **kw)
             cov_nmt_10d_arr[1, 1, 0, 0, :, :, zi, zj, zk, zl] = \
-                bin_2d_matrix(covar_TT_EE, ells_in, ells_out, ells_out_edges, which_binning, weights)
+                bin_2d_array(covar_TT_EE, **kw)
             cov_nmt_10d_arr[1, 1, 1, 0, :, :, zi, zj, zk, zl] = \
-                bin_2d_matrix(covar_TT_TE, ells_in, ells_out, ells_out_edges, which_binning, weights)
+                bin_2d_array(covar_TT_TE, **kw)
             cov_nmt_10d_arr[1, 1, 1, 1, :, :, zi, zj, zk, zl] = \
-                bin_2d_matrix(covar_TT_TT, ells_in, ells_out, ells_out_edges, which_binning, weights)
+                bin_2d_array(covar_TT_TT, **kw)
             # the remaining blocks can be filled in by symmetry (with zi, zj <-> zk, zl)
             cov_nmt_10d_arr[0, 0, 1, 0, :, :, zk, zl, zi, zj] = \
-                bin_2d_matrix(covar_TE_EE.T, ells_in, ells_out, ells_out_edges, which_binning, weights)
+                bin_2d_array(covar_TE_EE.T, **kw)
             cov_nmt_10d_arr[0, 0, 1, 1, :, :, zk, zl, zi, zj] = \
-                bin_2d_matrix(covar_TT_EE.T, ells_in, ells_out, ells_out_edges, which_binning, weights)
+                bin_2d_array(covar_TT_EE.T, **kw)
             cov_nmt_10d_arr[1, 0, 1, 1, :, :, zk, zl, zi, zj] = \
-                bin_2d_matrix(covar_TT_TE.T, ells_in, ells_out, ells_out_edges, which_binning, weights)
+                bin_2d_array(covar_TT_TE.T, **kw)
         else:
             cov_nmt_10d_arr[0, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_EE_EE
             cov_nmt_10d_arr[1, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_TE_EE
@@ -605,6 +612,102 @@ def bin_cell(ells_in, ells_out, ells_out_edges, cls_in, weights, which_binning, 
 
     return binned_cls
 
+
+def bin_2d_array(  # fmt: skip
+    cov, ells_in, ells_out, ells_out_edges, weights_in, which_binning='sum', 
+    interpolate = True
+):  # fmt: skip
+    assert cov.shape[0] == cov.shape[1] == len(ells_in), (
+        'ells_in must be the same length as the covariance matrix'
+    )
+    assert len(ells_out) == len(ells_out_edges) - 1, (
+        'ells_out must be the same length as the number of edges - 1'
+    )
+    assert which_binning in ['sum', 'integral'], (
+        'which_binning must be either "sum" or "integral"'
+    )
+
+    binned_cov = np.zeros((len(ells_out), len(ells_out)))
+    cov_interp_func = RectBivariateSpline(ells_in, ells_in, cov)
+
+    ells_edges_low = ells_out_edges[:-1]
+    ells_edges_high = ells_out_edges[1:]
+
+    if weights_in is None:
+        weights_in = np.ones_like(ells_in)
+
+    assert len(weights_in) == len(ells_in), (
+        'weights_in must be the same length as ells_in'
+    )
+
+    assert type(interpolate) is bool, 'interpolate must be a boolean'
+
+    # Loop over the output bins
+    for ell1_idx, _ in enumerate(ells_out):
+        for ell2_idx, _ in enumerate(ells_out):
+            # Get ell min/max for the current bins
+            ell1_min = ells_edges_low[ell1_idx]
+            ell1_max = ells_edges_high[ell1_idx]
+            ell2_min = ells_edges_low[ell2_idx]
+            ell2_max = ells_edges_high[ell2_idx]
+
+            # isolate the relevant ranges of ell values from the original ells_in grid
+
+            ell1_in_ix = np.where((ell1_min <= ells_in) & (ells_in < ell1_max))[0]
+            ell2_in_ix = np.where((ell2_min <= ells_in) & (ells_in < ell2_max))[0]
+            ell1_in = ells_in[ell1_in_ix]
+            ell2_in = ells_in[ell2_in_ix]
+
+            # mask the covariance to the relevant block
+            cov_masked = cov[np.ix_(ell1_in_ix, ell2_in_ix)]
+
+            # this equals the number of ell values within a bin in the unweighted case,
+            # and delta_ell in the unweighted, unbinned case
+            weights1_in = weights_in[ell1_in_ix]
+            weights2_in = weights_in[ell2_in_ix]
+
+            weights1_in_xx, weights2_in_yy = np.meshgrid(
+                weights1_in, weights2_in, indexing='ij'
+            )
+            if which_binning == 'sum':
+                partial_sum = np.sum(
+                    cov_masked * weights1_in_xx * weights2_in_yy, axis=1
+                )
+                total = np.sum(partial_sum, axis=0)
+                norm1 = np.sum(weights1_in)
+                norm2 = np.sum(weights2_in)
+
+            elif which_binning == 'integral' and not interpolate:
+                partial_integral = simps(
+                    y=cov_masked * weights1_in_xx * weights2_in_yy, x=ell2_in, axis=1
+                )
+                total = simps(y=partial_integral, x=ell1_in, axis=0)
+                norm1 = simps(y=weights1_in, x=ell1_in)
+                norm2 = simps(y=weights2_in, x=ell2_in)
+
+            elif which_binning == 'integral' and interpolate:
+                # Interpolate the covariance matrix to a finer grid if necessary
+                ell1_fine = np.linspace(ell1_min, ell1_max, num=100)
+                ell2_fine = np.linspace(ell2_min, ell2_max, num=100)
+                cov_interp = cov_interp_func(ell1_fine, ell2_fine)
+
+                # Create fine grids for weights if necessary
+                weights1_fine = np.interp(ell1_fine, ell1_in, weights1_in)
+                weights2_fine = np.interp(ell2_fine, ell2_in, weights2_in)
+
+                # Perform the double integral
+                partial_integral = simps(
+                    y=cov_interp * weights1_fine[:, None] * weights2_fine[None, :],
+                    x=ell2_fine,
+                    axis=1,
+                )
+                total = simps(y=partial_integral, x=ell1_fine, axis=0)
+                norm1 = simps(y=weights1_fine, x=ell1_fine)
+                norm2 = simps(y=weights2_fine, x=ell2_fine)
+
+            binned_cov[ell1_idx, ell2_idx] = total / (norm1 * norm2)
+
+    return binned_cov
 
 def bin_2d_matrix(
     cov, ells_in, ells_out, ells_out_edges, weights_in, which_binning='sum'
