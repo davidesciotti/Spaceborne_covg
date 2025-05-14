@@ -18,7 +18,7 @@ nmt_ell_binning: 'from_edges'
 # alternatively, one can specify the ell grid directly (set to "null" if you prefer to use ell_min, ell_max, ell_bins)
 # ell_path: '../input/ell_values.txt'  # path to txt file with the ell grid
 # delta_ell_path: '../input/delta_ell_values.txt' # path to txt file with the delta ell grid
-ell_tab_path: /home/davide/Documenti/Lavoro/Programmi/Spaceborne/output/ell_values_3x2pt.txt
+ell_tab_path: /home/cosmo/davide.sciotti/data/Spaceborne/output/ell_values_3x2pt.txt
 delta_ell_path: null
 
 n_gal_shear:
@@ -51,11 +51,11 @@ aposize: 0.1 # apodization scale in deg
 nreal: 2 # number of Gaussian realisations
 load_simulated_cls: False  # whether to load simulated cls from file
 coupled: True  # compute the covariance of the coupled or decoupled cls
-spin0 : False
+spin0 : True
 compute_all_blocks: False  # compute all probe blocks of the nmt covariance
 which_ell_weights: get_weight_list()  # get_weight_list() or get_bandpower_windows()
 which_cls: namaster  # namaster or healpy
-use_INKA: False
+use_INKA: True
 save_sim_maps: False
 save_sample_cov: False
 load_sample_cov: False
@@ -74,9 +74,9 @@ plot_covariance_2D: False # whether to plot (the log10 of) the 2D covariance mat
 
 # path to 3d numpy Cls. If part_sky is True, it has to be the unbinned Cl's from ell_min = 0 to ell_max = 3*NSIDE (or 2*NSIDE, to check)
 load_cls: True
-cl_LL_3D_path: "/home/davide/Documenti/Lavoro/Programmi/Spaceborne/output/cl_ee_unb.npy"
-cl_GL_3D_path: "/home/davide/Documenti/Lavoro/Programmi/Spaceborne/output/cl_te_unb.npy"
-cl_GG_3D_path: "/home/davide/Documenti/Lavoro/Programmi/Spaceborne/output/cl_tt_unb.npy"
+cl_LL_3D_path: "/home/cosmo/davide.sciotti/data/Spaceborne/output/cl_ee_unb.npy"
+cl_GL_3D_path: "/home/cosmo/davide.sciotti/data/Spaceborne/output/cl_te_unb.npy"
+cl_GG_3D_path: "/home/cosmo/davide.sciotti/data/Spaceborne/output/cl_tt_unb.npy"
 # Pseudo-Cl covariance
 # If False will compute the full-sky covariance (divided by fsky).
 # Else, compute the Pseudo-Cls covariance with NaMaster.
@@ -88,8 +88,8 @@ workspace_path: "{ROOT:s}/Spaceborne_covg/input/fullsky_NmtWorkspace_NS32_LMIN10
 # path to mask
 read_mask: True  # True or False. if False, generates polar cap with desired sky area and nside on-the-fly
 # DR3-like
-# mask_path: /home/davide/Documenti/Lavoro/Programmi/CSSTforecasts/mask_nside4096/map_area_only.npy
+# mask_path: /home/cosmo/davide.sciotti/data/CSSTforecasts/mask_nside4096/map_area_only.npy
 # DR1-like (actual Euclid mask)
-mask_path: "/home/davide/Documenti/Lavoro/Programmi/Spaceborne/output/mask.npy"
+mask_path: "/home/cosmo/davide.sciotti/data/Spaceborne/output/mask.npy"
 
-output_folder: "../output"
+output_folder: "/home/cosmo/davide.sciotti/data/Spaceborne_covg/output"

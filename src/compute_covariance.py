@@ -774,9 +774,9 @@ f2_mask = nmt.NmtField(mask=mask, maps=None, spin=2, lite=True, lmax=lmax_eff)
 w00 = nmt.NmtWorkspace()
 w02 = nmt.NmtWorkspace()
 w22 = nmt.NmtWorkspace()
-w00.read_from('/home/davide/Documenti/Lavoro/Programmi/Spaceborne/output/cache/nmt/w00_workspace.fits')
-w02.read_from('/home/davide/Documenti/Lavoro/Programmi/Spaceborne/output/cache/nmt/w02_workspace.fits')
-w22.read_from('/home/davide/Documenti/Lavoro/Programmi/Spaceborne/output/cache/nmt/w22_workspace.fits')
+w00.read_from('/home/cosmo/davide.sciotti/data/Spaceborne/output/cache/nmt/w00_workspace.fits')
+w02.read_from('/home/cosmo/davide.sciotti/data/Spaceborne/output/cache/nmt/w02_workspace.fits')
+w22.read_from('/home/cosmo/davide.sciotti/data/Spaceborne/output/cache/nmt/w22_workspace.fits')
 # w00.compute_coupling_matrix(f0_mask, f0_mask, bin_obj)
 # w02.compute_coupling_matrix(f0_mask, f2_mask, bin_obj)
 # w22.compute_coupling_matrix(f2_mask, f2_mask, bin_obj)
@@ -1470,6 +1470,26 @@ else:
         np.save(cfg['sim_cls_name'].format(probe='GL', **settings_dict), sim_cl_GL)
         np.save(cfg['sim_cls_name'].format(probe='LL', **settings_dict), sim_cl_LL)
 
+
+# ! reshape the total 10d arrays to 4d
+ind_use = utils.build_full_ind(triu_tril, row_col_major, zbins_use)
+zpairs_auto_use, zpairs_cross_use, zpairs_3x2pt_use = utils.get_zpairs(zbins_use)
+ind_auto_use = ind_use[:zpairs_auto_use, :].copy()
+ind_cross_use = ind_use[
+    zpairs_auto_use : zpairs_cross_use + zpairs_auto_use, :
+].copy()
+elem_auto_use = zpairs_auto_use * nbl_eff
+elem_apc_use = (zpairs_auto_use + zpairs_cross_use) * nbl_eff  # auto + cross
+
+cov_nmt_4d = utils.cov_3x2pt_10D_to_4D(
+    cov_nmt_10d, probe_ordering, nbl_eff, zbins_use, ind_use.copy(), GL_or_LG
+)
+cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(
+    cov_nmt_4d, zbins_use, block_index='sylvain'
+)
+np.save(f'{output_folder}/psky_merge_check/cov_nmt_3x2pt_2D.npy', cov_nmt_2d)
+
+assert False, 'stop here for psky checks'
 # # ! BIN COVARIANCE MATRICES IF NEEDED
 binned_shape = (nbl_eff, nbl_eff)
 z_combinations = list(itertools.product(range(zbins_use), repeat=4))
@@ -1516,19 +1536,7 @@ for zi, zj, zk, zl in z_combinations:
                 which_binning='sum',
             )
 
-# ! reshape the total 10d arrays to 4d
-ind_use = utils.build_full_ind(triu_tril, row_col_major, zbins_use)
-zpairs_auto_use, zpairs_cross_use, zpairs_3x2pt_use = utils.get_zpairs(zbins_use)
-ind_auto_use = ind_use[:zpairs_auto_use, :].copy()
-ind_cross_use = ind_use[
-    zpairs_auto_use : zpairs_cross_use + zpairs_auto_use, :
-].copy()
-elem_auto_use = zpairs_auto_use * nbl_eff
-elem_apc_use = (zpairs_auto_use + zpairs_cross_use) * nbl_eff  # auto + cross
 
-cov_nmt_4d = utils.cov_3x2pt_10D_to_4D(
-    cov_nmt_10d, probe_ordering, nbl_eff, zbins_use, ind_use.copy(), GL_or_LG
-)
 cov_sb_4d = utils.cov_3x2pt_10D_to_4D(
     bin_cov_sb_10d, probe_ordering, nbl_eff, zbins_use, ind_use.copy(), GL_or_LG
 )
@@ -1538,9 +1546,6 @@ cov_sim_4d = utils.cov_3x2pt_10D_to_4D(
 
 # ! reshape to 2d
 # probe-ell-zpair ordering
-cov_nmt_2d = utils.cov_4D_to_2DCLOE_3x2pt(
-    cov_nmt_4d, zbins_use, block_index='sylvain'
-)
 cov_sb_2d = utils.cov_4D_to_2DCLOE_3x2pt(
     cov_sb_4d, zbins_use, block_index='sylvain'
 )
@@ -1548,7 +1553,6 @@ cov_sim_2d = utils.cov_4D_to_2DCLOE_3x2pt(
     cov_sim_4d, zbins_use, block_index='sylvain'
 )
 
-np.save(f'{output_folder}/psky_merge_check/cov_nmt_3x2pt_2D.npy', cov_nmt_2d)
 
 # ! check different zij x zjk blocks
 if fsky == 1:

@@ -489,34 +489,35 @@ def nmt_gaussian_cov_spin0(cl_tt, cl_te, cl_ee, zbins, nbl, cw, w00, coupled, el
                                               wa=w00, wb=w00)
         covar_EE_TT = covar_22_00
         
+        
+        kw = {
+            'ells_in': ells_in,
+            'ells_out': ells_out,
+            'ells_out_edges': ells_out_edges,
+            'weights_in': weights,
+            'which_binning': which_binning
+        }
+                
+                
         if coupled:
             cov_nmt_10d_arr[0, 0, 0, 0, :, :, zi, zj, zk, zl] = \
-                    bin_2d_matrix(covar_EE_EE, ells_in, ells_out, ells_out_edges, 
-                    which_binning, weights)
+                    bin_2d_array(covar_EE_EE, **kw)
             cov_nmt_10d_arr[0, 0, 1, 0, :, :, zi, zj, zk, zl] = \
-                    bin_2d_matrix(covar_EE_TE, ells_in, ells_out, ells_out_edges, 
-                    which_binning, weights)
+                    bin_2d_array(covar_EE_TE, **kw)
             cov_nmt_10d_arr[0, 0, 1, 1, :, :, zi, zj, zk, zl] = \
-                    bin_2d_matrix(covar_EE_TT, ells_in, ells_out, ells_out_edges, 
-                    which_binning, weights)
+                    bin_2d_array(covar_EE_TT, **kw)
             cov_nmt_10d_arr[1, 0, 0, 0, :, :, zi, zj, zk, zl] = \
-                    bin_2d_matrix(covar_TE_EE, ells_in, ells_out, ells_out_edges, 
-                    which_binning, weights)
+                    bin_2d_array(covar_TE_EE, **kw)
             cov_nmt_10d_arr[1, 0, 1, 0, :, :, zi, zj, zk, zl] = \
-                    bin_2d_matrix(covar_TE_TE, ells_in, ells_out, ells_out_edges, 
-                    which_binning, weights)
+                    bin_2d_array(covar_TE_TE, **kw)
             cov_nmt_10d_arr[1, 1, 0, 0, :, :, zi, zj, zk, zl] = \
-                    bin_2d_matrix(covar_TT_EE, ells_in, ells_out, ells_out_edges, 
-                    which_binning, weights)
+                    bin_2d_array(covar_TT_EE, **kw)
             cov_nmt_10d_arr[1, 1, 1, 0, :, :, zi, zj, zk, zl] = \
-                    bin_2d_matrix(covar_TT_TE, ells_in, ells_out, ells_out_edges, 
-                    which_binning, weights)
+                    bin_2d_array(covar_TT_TE, **kw)
             cov_nmt_10d_arr[1, 0, 1, 1, :, :, zi, zj, zk, zl] = \
-                    bin_2d_matrix(covar_TE_TT, ells_in, ells_out, ells_out_edges, 
-                    which_binning, weights)
+                    bin_2d_array(covar_TE_TT, **kw)
             cov_nmt_10d_arr[1, 1, 1, 1, :, :, zi, zj, zk, zl] = \
-                    bin_2d_matrix(covar_TT_TT, ells_in, ells_out, ells_out_edges, 
-                    which_binning, weights)
+                    bin_2d_array(covar_TT_TT, **kw)
         
         else:
             cov_nmt_10d_arr[0, 0, 0, 0, :, :, zi, zj, zk, zl] = covar_EE_EE
