@@ -1,3 +1,5 @@
+# ⚠️ This repository is no longer maintained. Please refer to the [Spaceborne](https://github.com/davidesciotti/Spaceborne) repository instead ⚠️
+
 # Spaceborne - Gaussian covariance
 
  A simple script to compute the Gaussian 3x2pt covariance in harmonic space, using the following formula (Eq.(138) of the _Euclid_ Preparation: VII. Forecast Validation [paper](https://arxiv.org/abs/1910.09273)).
